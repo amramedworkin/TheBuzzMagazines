@@ -1,0 +1,7 @@
+How to copy front end of database and install on individual computers
+
+1.	Map a network drive N: to \\dc1\network.
+2.	Go to N drive under AdvertiserDatabase and copy database folder.
+3.	Go to C:\users\public\Documents, then AdvertiserDatabase and paste folder.
+4.	Right click on file and “Send to desktop” to create a shortcut on desktop.
+5. 	Cut and paste the desktop shortcut into c:\users\public\desktop
