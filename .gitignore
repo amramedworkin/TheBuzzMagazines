@@ -5,6 +5,9 @@
 scratch/
 scratch*
 
+# MS Access database files
+*.accdb
+
 # Database backups (can be large)
 databases/backups/*.sql
 databases/backups/*.sql.gz
