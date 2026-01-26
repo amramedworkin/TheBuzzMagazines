@@ -1,6 +1,10 @@
 # Environment files (contain credentials)
 .env
 
+# Scratch files and folders
+scratch/
+scratch*
+
 # Database backups (can be large)
 databases/backups/*.sql
 databases/backups/*.sql.gz
