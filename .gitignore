@@ -1,0 +1,20 @@
+# Environment files (contain credentials)
+.env
+
+# Database backups (can be large)
+databases/backups/*.sql
+databases/backups/*.sql.gz
+
+# Python virtual environment
+mdb_env/
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

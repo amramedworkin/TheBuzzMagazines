@@ -76,7 +76,7 @@ ORDER BY tblContactLevels.SortSeq;
 CREATE OR REPLACE VIEW `qryContractType` AS
 SELECT tblContractType.ContractType
 FROM tblContractType
-ORDER BY tblContractType.SortID;
+ORDER BY tblContractType.SortSeq;
 
 -- Access: qryPrefix
 CREATE OR REPLACE VIEW `qryPrefix` AS
