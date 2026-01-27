@@ -95,7 +95,7 @@
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   Build-Time (Dockerfile)                    │
+│                   Build-Time (Dockerfile)                   │
 │  - ENV defaults baked into image                            │
 │  - SSL certificates installed                               │
 │  - SuiteCRM source code downloaded                          │
@@ -103,7 +103,7 @@
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                 Deploy-Time (ACA Configuration)              │
+│                 Deploy-Time (ACA Configuration)             │
 │  - Environment variables passed to container                │
 │  - Secrets injected (passwords)                             │
 │  - Volume mounts configured                                 │
