@@ -18,7 +18,7 @@ This guide covers deploying the SuiteCRM 8.8.0 Docker image to Azure Container A
 
 ```bash
 az group create \
-  --name rg-suitecrm \
+  --name buzz-suitecrm-rg \
   --location eastus
 ```
 
@@ -26,7 +26,7 @@ az group create \
 
 ```bash
 az acr create \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name acrsuitecrm \
   --sku Basic
 
@@ -40,7 +40,7 @@ az acr update \
 
 ```bash
 az mysql flexible-server create \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name mysql-suitecrm \
   --admin-user suitecrm \
   --admin-password '<SECURE_PASSWORD>' \
@@ -50,13 +50,13 @@ az mysql flexible-server create \
 
 # Create the database
 az mysql flexible-server db create \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --server-name mysql-suitecrm \
   --database-name suitecrm
 
 # Allow Azure services to connect
 az mysql flexible-server firewall-rule create \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name mysql-suitecrm \
   --rule-name AllowAzureServices \
   --start-ip-address 0.0.0.0 \
@@ -68,14 +68,14 @@ az mysql flexible-server firewall-rule create \
 ```bash
 # Create storage account
 az storage account create \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name stsuitecrm \
   --sku Standard_LRS \
   --kind StorageV2
 
 # Get storage key
 STORAGE_KEY=$(az storage account keys list \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --account-name stsuitecrm \
   --query '[0].value' -o tsv)
 
@@ -106,7 +106,7 @@ docker push acrsuitecrm.azurecr.io/suitecrm:8.8.0
 
 ```bash
 az containerapp env create \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name cae-suitecrm \
   --location eastus
 ```
@@ -116,13 +116,13 @@ az containerapp env create \
 ```bash
 # Get storage key
 STORAGE_KEY=$(az storage account keys list \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --account-name stsuitecrm \
   --query '[0].value' -o tsv)
 
 # Add storage to environment
 az containerapp env storage set \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name cae-suitecrm \
   --storage-name suitecrmstorage \
   --azure-file-account-name stsuitecrm \
@@ -142,7 +142,7 @@ ACR_PASSWORD=$(az acr credential show --name acrsuitecrm --query passwords[0].va
 
 # Create the container app
 az containerapp create \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name suitecrm \
   --environment cae-suitecrm \
   --image acrsuitecrm.azurecr.io/suitecrm:8.8.0 \
@@ -249,7 +249,7 @@ Apply with:
 
 ```bash
 az containerapp update \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name suitecrm \
   --yaml suitecrm-containerapp.yaml
 ```
@@ -260,7 +260,7 @@ az containerapp update \
 
 ```bash
 az containerapp show \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name suitecrm \
   --query properties.configuration.ingress.fqdn -o tsv
 ```
@@ -291,7 +291,7 @@ az containerapp show \
 
 ```bash
 az containerapp logs show \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name suitecrm \
   --follow
 ```
@@ -300,7 +300,7 @@ az containerapp logs show \
 
 ```bash
 az containerapp show \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name suitecrm \
   --query properties.runningStatus
 ```
@@ -309,7 +309,7 @@ az containerapp show \
 
 ```bash
 az containerapp revision restart \
-  --resource-group rg-suitecrm \
+  --resource-group buzz-suitecrm-rg \
   --name suitecrm
 ```
 

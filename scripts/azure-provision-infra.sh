@@ -6,16 +6,16 @@
 # Reads configuration from .env file
 #
 # Usage:
-#   ./azure-provision.sh          # Interactive mode (default)
-#   ./azure-provision.sh -y       # Non-interactive mode
-#   ./azure-provision.sh --yes    # Non-interactive mode
+#   ./azure-provision-infra.sh          # Interactive mode (default)
+#   ./azure-provision-infra.sh -y       # Non-interactive mode
+#   ./azure-provision-infra.sh --yes    # Non-interactive mode
 # ============================================================================
 
 # ============================================================================
 # SCRIPT CONFIGURATION
 # ============================================================================
 
-SCRIPT_NAME="azure-provision"
+SCRIPT_NAME="azure-provision-infra"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="${PROJECT_ROOT}/.env"
@@ -275,12 +275,14 @@ load_env() {
     source "$ENV_FILE"
     set +a
 
-    # Expand nested variables
-    AZURE_RESOURCE_GROUP="rg-${AZURE_RESOURCE_PREFIX}-suitecrm"
-    AZURE_PROVISION_MYSQL_SERVER_NAME="${AZURE_RESOURCE_PREFIX}-mysql"
-    AZURE_STORAGE_ACCOUNT_NAME="${AZURE_RESOURCE_PREFIX}storage"
-    AZURE_ACR_NAME="${AZURE_RESOURCE_PREFIX}acr"
-    AZURE_CONTAINER_APP_ENV="${AZURE_RESOURCE_PREFIX}-cae"
+    # Expand nested variables from .env (they use ${AZURE_RESOURCE_PREFIX})
+    # These are evaluated here because bash doesn't expand nested vars on source
+    eval "AZURE_RESOURCE_GROUP=$AZURE_RESOURCE_GROUP"
+    eval "AZURE_PROVISION_MYSQL_SERVER_NAME=$AZURE_PROVISION_MYSQL_SERVER_NAME"
+    eval "AZURE_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME"
+    eval "AZURE_ACR_NAME=$AZURE_ACR_NAME"
+    eval "AZURE_CONTAINER_APP_ENV=$AZURE_CONTAINER_APP_ENV"
+    eval "SUITECRM_RUNTIME_MYSQL_HOST=$SUITECRM_RUNTIME_MYSQL_HOST"
     
     log_info "Resource prefix: $AZURE_RESOURCE_PREFIX"
     log_info "Resource group: $AZURE_RESOURCE_GROUP"
@@ -397,9 +399,9 @@ create_mysql_server() {
     else
         log_info "Creating MySQL Flexible Server (this may take 5-10 minutes)..."
         log_info "  Server: $AZURE_PROVISION_MYSQL_SERVER_NAME"
-        log_info "  SKU: ${AZURE_PROVISION_MYSQL_SKU:-Standard_B1ms}"
-        log_info "  Storage: ${AZURE_PROVISION_MYSQL_STORAGE_GB:-32}GB"
-        log_info "  Version: ${AZURE_PROVISION_MYSQL_VERSION:-8.0-lts}"
+        log_info "  SKU: ${AZURE_PROVISION_MYSQL_SKU}"
+        log_info "  Storage: ${AZURE_PROVISION_MYSQL_STORAGE_GB}GB"
+        log_info "  Version: ${AZURE_PROVISION_MYSQL_VERSION}"
         
         if ! output=$(az mysql flexible-server create \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -407,9 +409,10 @@ create_mysql_server() {
             --location "$AZURE_LOCATION" \
             --admin-user "$SUITECRM_RUNTIME_MYSQL_USER" \
             --admin-password "$SUITECRM_RUNTIME_MYSQL_PASSWORD" \
-            --sku-name "${AZURE_PROVISION_MYSQL_SKU:-Standard_B1ms}" \
-            --storage-size "${AZURE_PROVISION_MYSQL_STORAGE_GB:-32}" \
-            --version "${AZURE_PROVISION_MYSQL_VERSION:-8.0-lts}" \
+            --sku-name "${AZURE_PROVISION_MYSQL_SKU}" \
+            --storage-size "${AZURE_PROVISION_MYSQL_STORAGE_GB}" \
+            --version "${AZURE_PROVISION_MYSQL_VERSION}" \
+            --yes \
             --output json 2>&1); then
             log_cmd_output "$output"
             handle_error "create_mysql_server" "Failed to create MySQL server. Check password complexity and server name availability."
@@ -493,7 +496,7 @@ create_storage_account() {
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_STORAGE_ACCOUNT_NAME" \
             --location "$AZURE_LOCATION" \
-            --sku "${AZURE_STORAGE_SKU:-Standard_LRS}" \
+            --sku "${AZURE_STORAGE_SKU}" \
             --kind StorageV2 \
             --output json 2>&1); then
             log_cmd_output "$output"
@@ -558,7 +561,7 @@ create_container_registry() {
         if ! output=$(az acr create \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_ACR_NAME" \
-            --sku "${AZURE_ACR_SKU:-Basic}" \
+            --sku "${AZURE_ACR_SKU}" \
             --admin-enabled true \
             --output json 2>&1); then
             log_cmd_output "$output"
@@ -602,7 +605,7 @@ Next Steps:
 ============================================================================
 
 1. Mount Azure Files locally:
-   sudo ./scripts/azure-mount.sh
+   sudo ./scripts/azure-mount-fileshare-to-local.sh
 
 2. Build and run Docker container:
    docker compose up --build -d
@@ -660,6 +663,10 @@ main() {
     else
         echo "Mode: Non-interactive (running all steps automatically)"
     fi
+    echo ""
+    echo -e "\033[1;33mNOTE:\033[0m Some Azure CLI operations may pause waiting for input."
+    echo "      If the screen appears frozen, press Enter to continue."
+    echo "      Long operations (MySQL creation) can take 5-10 minutes."
     echo ""
 
     # Trap to ensure we finalize the log even on error

@@ -12,10 +12,11 @@ Scripts are organized by their role in the deployment lifecycle.
 
 | Phase | Scripts | Purpose |
 |-------|---------|---------|
-| **Admin** | `validate-env.sh`, `cli.sh`, `menu.sh` | Configuration validation and management |
-| **Provision** | `azure-provision.sh` | Create Azure resources |
-| **Mount** | `azure-mount.sh` | Mount Azure Files locally |
-| **Deploy** | (Docker commands) | Build and run containers |
+| **Admin** | `validate-env.sh`, `cli.sh`, `menu.sh`, `azure-test-capabilities.sh`, `azure-validate-resources.sh` | Configuration validation and management |
+| **Provision** | `azure-provision-infra.sh` | Create Azure resources |
+| **Teardown** | `azure-teardown-infra.sh` | Delete Azure resources |
+| **Mount** | `azure-mount-fileshare-to-local.sh` | Mount Azure Files locally |
+| **Deploy** | `docker-build.sh`, `docker-start.sh`, `docker-stop.sh`, `docker-validate.sh`, `docker-teardown.sh` | Build and run containers |
 | **Migrate** | (Future) | Data migration from legacy systems |
 
 ---
@@ -41,11 +42,21 @@ The main entry point for all management tasks. Acts as a dispatcher for other sc
 | `provision` | Run Azure resource provisioning | `-y`, `--yes` |
 | `mount` | Mount Azure Files locally | `-y`, `--yes` (requires sudo) |
 | `unmount` | Unmount Azure Files | `-y`, `--yes` (requires sudo) |
+| `test-azure-capabilities` | Test Azure CLI capabilities and permissions | |
+| `validate-resources` | Check if Azure resources exist | |
+| `teardown` | Delete all Azure infrastructure (DESTRUCTIVE) | |
+| `docker-build` | Build Docker image | `-y`, `--yes`, `--no-cache` |
+| `docker-start` | Start SuiteCRM container | `-y`, `--yes` |
+| `docker-stop` | Stop SuiteCRM container | `-y`, `--yes` |
+| `docker-validate` | Validate Docker environment | |
+| `docker-teardown` | Remove Docker artifacts (DESTRUCTIVE) | `-y`, `--yes`, `--prune` |
+| `docker-logs` | View container logs | |
 | `backup-db-source [name]` | Backup source database (full) | Optional name component |
 | `backup-schema-source <name>` | Backup source schema only | Required name component |
 | `show-log-provision` | Show latest provision log | |
 | `show-log-mount` | Show latest mount log | |
 | `list-logs` | List all available logs | |
+| `generate-env-example` | Generate .env.example from .env | |
 | `help` | Show help message | |
 
 **Examples:**
@@ -61,6 +72,9 @@ The main entry point for all management tasks. Acts as a dispatcher for other sc
 
 # Mount Azure Files (requires sudo)
 sudo ./scripts/cli.sh mount
+
+# Test Azure capabilities before provisioning
+./scripts/cli.sh test-azure-capabilities
 
 # Backup source database
 ./scripts/cli.sh backup-db-source pre_migration
@@ -91,7 +105,7 @@ A cascading interactive menu system for all CLI commands.
 ```
 Main Menu
 ├── Environment (validate, edit .env)
-├── Azure (login, provision, mount/unmount)
+├── Azure (login, provision, mount/unmount, test, teardown)
 ├── Docker (build, start, stop, logs)
 ├── Database (backups)
 ├── Logs (view logs)
@@ -144,15 +158,15 @@ Validates the `.env` file for completeness and correct values.
 
 ---
 
-### `azure-provision.sh` - Azure Resource Provisioning
+### `azure-provision-infra.sh` - Azure Resource Provisioning
 
 Creates all required Azure resources for the SuiteCRM deployment.
 
-**Location:** `scripts/azure-provision.sh`
+**Location:** `scripts/azure-provision-infra.sh`
 
 **Usage:**
 ```bash
-./scripts/azure-provision.sh [options]
+./scripts/azure-provision-infra.sh [options]
 ```
 
 **Options:**
@@ -193,15 +207,15 @@ Creates all required Azure resources for the SuiteCRM deployment.
 
 ---
 
-### `azure-mount.sh` - Azure Files Mount
+### `azure-mount-fileshare-to-local.sh` - Azure Files Mount
 
 Mounts Azure File shares locally using SMB/CIFS.
 
-**Location:** `scripts/azure-mount.sh`
+**Location:** `scripts/azure-mount-fileshare-to-local.sh`
 
 **Usage:**
 ```bash
-sudo ./scripts/azure-mount.sh [action] [options]
+sudo ./scripts/azure-mount-fileshare-to-local.sh [action] [options]
 ```
 
 **Actions:**
@@ -221,7 +235,7 @@ sudo ./scripts/azure-mount.sh [action] [options]
 **Prerequisites:**
 - Root/sudo access
 - `cifs-utils` package installed
-- Azure Storage account created (via `azure-provision.sh`)
+- Azure Storage account created (via `azure-provision-infra.sh`)
 - Storage key available (in `.azure-secrets`)
 
 **What It Does (mount):**
@@ -252,6 +266,440 @@ sudo ./scripts/azure-mount.sh [action] [options]
 
 ---
 
+### `azure-test-capabilities.sh` - Azure Capability Testing
+
+Tests Azure CLI capabilities and permissions before provisioning resources.
+
+**Location:** `scripts/azure-test-capabilities.sh`
+
+**Usage:**
+```bash
+./scripts/azure-test-capabilities.sh
+```
+
+**Via CLI:**
+```bash
+./scripts/cli.sh test-azure-capabilities
+```
+
+**Via Menu:**
+```
+Main Menu → Azure Setup → Test Azure Capabilities
+```
+
+**What It Tests:**
+
+1. **Azure Login Status** - Verifies user is logged into Azure CLI
+2. **Environment Variables** - Loads and validates `.env` file
+3. **Resource Group Creation** - Tests ability to create resource groups
+4. **Storage Account Creation** - Tests ability to create storage accounts (required for Azure Files)
+5. **MySQL Provider Registration** - Checks if `Microsoft.DBforMySQL` provider is registered
+6. **ACR Service Accessibility** - Verifies Container Registry service is accessible
+
+**Prerequisites:**
+- Azure CLI installed (`az`)
+- Logged into Azure (`az login`)
+- Valid `.env` file with `AZURE_SUBSCRIPTION_ID` set
+
+**What It Does:**
+
+1. Checks Azure CLI login status and displays current user
+2. Loads environment variables from `.env` file
+3. Sets Azure subscription from `AZURE_SUBSCRIPTION_ID`
+4. Creates temporary test resource group
+5. Creates temporary test storage account (name truncated to 24 chars)
+6. Checks MySQL provider registration status (registers if needed)
+7. Tests ACR name availability as proxy for service access
+8. Cleans up test resources (deletes resource group in background)
+9. Displays summary of all test results
+
+**Output Format:**
+```
+[STEP] Azure Login Check
+[SUCCESS] Azure Login Check (User: ami@ITProtects.onmicrosoft.com)
+[STEP] Load .env Variables
+[SUCCESS] Load .env Variables
+[STEP] Resource Group Creation
+[SUCCESS] Resource Group Creation
+...
+============================================================================
+                       TEST CAPABILITY SUMMARY
+============================================================================
+✔ Azure Login Check (User: ...)
+✔ Load .env Variables
+✔ Resource Group Creation
+✔ Storage Account Creation
+✔ MySQL Provider Status (Registered)
+✔ ACR Service Check
+✔ Cleanup Complete
+============================================================================
+```
+
+**Exit Codes:**
+- `0` - All tests completed (some may have failed, but script ran)
+- `1` - Critical failure (not logged in, missing .env, etc.)
+
+**When to Use:**
+- Before running `azure-provision-infra.sh` to verify permissions
+- After Azure subscription changes or permission updates
+- Troubleshooting provisioning failures
+- Verifying provider registrations
+
+**Lifecycle Phase:** Admin (runs before Provision)
+
+---
+
+### `azure-teardown-infra.sh` - Azure Infrastructure Teardown
+
+Permanently deletes all Azure resources created by `azure-provision-infra.sh`.
+
+**Location:** `scripts/azure-teardown-infra.sh`
+
+**Usage:**
+```bash
+./scripts/azure-teardown-infra.sh
+```
+
+**Via CLI:**
+```bash
+./scripts/cli.sh teardown
+```
+
+**Via Menu:**
+```
+Main Menu → Azure Setup → Teardown Infrastructure (DESTRUCTIVE)
+```
+
+**⚠️ WARNING: This is a destructive operation that cannot be undone!**
+
+**What It Deletes (in order):**
+
+1. **MySQL Flexible Server** - `buzzmag-mysql`
+2. **Container Registry (ACR)** - `buzzmagacr`
+3. **Resource Group** (cascading) - `rg-buzzmag-suitecrm`
+   - This deletes Storage Account and all remaining resources
+
+**Prerequisites:**
+- Azure CLI installed (`az`)
+- Logged into Azure (`az login`)
+- Valid `.env` file with `AZURE_RESOURCE_PREFIX` set
+
+**Output Format:**
+```
+[STEP] Loading environment configuration...
+[SUCCESS] Environment loaded from .env
+[STEP] Checking Azure Authentication...
+[SUCCESS] Authenticated to Azure
+[STEP] Deleting MySQL Flexible Server...
+[SUCCESS] MySQL Server 'buzzmag-mysql' deleted
+[STEP] Deleting Container Registry (ACR)...
+[SUCCESS] ACR 'buzzmagacr' deleted
+[STEP] Deleting Resource Group (Cascading Deletion)...
+[SUCCESS] Resource Group 'rg-buzzmag-suitecrm' and all its contents deleted
+
+============================================================================
+                       TEARDOWN RESULTS SUMMARY
+============================================================================
+✔ Environment loaded from .env
+✔ Authenticated to Azure
+✔ MySQL Server 'buzzmag-mysql' deleted
+✔ ACR 'buzzmagacr' deleted
+✔ Resource Group 'rg-buzzmag-suitecrm' and all its contents deleted
+============================================================================
+```
+
+**Exit Codes:**
+- `0` - Teardown completed (resources deleted or not found)
+- `1` - Critical failure (not logged in, missing .env)
+
+**When to Use:**
+- Starting fresh after a failed provisioning
+- Cleaning up after testing
+- Removing all Azure resources before re-provisioning
+
+**Lifecycle Phase:** Admin (cleanup/reset)
+
+---
+
+### `azure-validate-resources.sh` - Azure Resource Validation
+
+Validates that all Azure resources defined in `.env` exist (or don't exist). Useful for verifying provisioning status before deploying or troubleshooting.
+
+**Location:** `scripts/azure-validate-resources.sh`
+
+**Usage:**
+```bash
+./scripts/azure-validate-resources.sh
+```
+
+**Via CLI:**
+```bash
+./scripts/cli.sh validate-resources
+```
+
+**Via Menu:**
+```
+Main Menu → Azure Setup → Validate Resources
+```
+
+**What It Checks:**
+
+| Resource | Service Type | Description |
+|----------|--------------|-------------|
+| `$AZURE_RESOURCE_GROUP` | Resource Group | Container for all Azure resources |
+| `$AZURE_PROVISION_MYSQL_SERVER_NAME` | MySQL Flexible Server | Database server for SuiteCRM |
+| `$SUITECRM_RUNTIME_MYSQL_NAME` | MySQL Database | SuiteCRM application database |
+| `$AZURE_STORAGE_ACCOUNT_NAME` | Storage Account | Azure Files for persistent storage |
+| `suitecrm-upload` | File Share | User uploaded files (documents, images) |
+| `suitecrm-custom` | File Share | Custom modules and extensions |
+| `suitecrm-cache` | File Share | Application cache files |
+| `$AZURE_ACR_NAME` | Container Registry | Docker image repository |
+
+**Prerequisites:**
+- Azure CLI installed (`az`)
+- Logged into Azure (`az login`)
+- Valid `.env` file
+
+**Output Format:**
+```
+============================================================================
+                    AZURE RESOURCE VALIDATION SUMMARY
+============================================================================
+
+Configuration from .env:
+  Subscription:    561dd34b-5a54-486f-abce-23ce53d2a1b4
+  Location:        southcentralus
+  Resource Prefix: buzz
+
+RESOURCE NAME            SERVICE TYPE            DESCRIPTION                               EXISTS
+============================================================================================
+buzz-rg                  Resource Group          Container for all Azure resources         YES
+buzz-mysql               MySQL Flexible Server   Database server for SuiteCRM              YES
+suitecrm                 MySQL Database          SuiteCRM application database             YES
+buzzmagstorage           Storage Account         Azure Files for persistent storage        YES
+suitecrm-upload          File Share              User uploaded files (documents, images)   YES
+suitecrm-custom          File Share              Custom modules and extensions             YES
+suitecrm-cache           File Share              Application cache files                   YES
+buzzacr                  Container Registry      Docker image repository                   NO
+============================================================================================
+
+Summary: 7 exist, 1 missing (of 8 resources)
+
+○ Some resources are missing. Run: ./scripts/azure-provision-infra.sh
+
+Log file: logs/latest_azure-validate-resources_20260127_143500.log
+============================================================================
+```
+
+**Exit Codes:**
+- `0` - Validation completed successfully
+- `1` - Critical failure (not logged in, missing .env)
+
+**When to Use:**
+- After running provisioning to verify all resources were created
+- Before deployment to ensure infrastructure is ready
+- When troubleshooting connection issues
+- After teardown to verify cleanup was complete
+
+**Lifecycle Phase:** Admin (verification)
+
+---
+
+### `docker-build.sh` - Build Docker Image
+
+Builds the SuiteCRM Docker image with logging and validation.
+
+**Location:** `scripts/docker-build.sh`
+
+**Usage:**
+```bash
+./scripts/docker-build.sh              # Interactive mode
+./scripts/docker-build.sh -y           # Non-interactive mode
+./scripts/docker-build.sh --no-cache   # Build without cache
+```
+
+**Via CLI:**
+```bash
+./scripts/cli.sh docker-build
+./scripts/cli.sh docker-build --no-cache
+```
+
+**Via Menu:**
+```
+Main Menu → Docker Management → Build Docker Image
+```
+
+**What It Does:**
+1. Validates Docker is installed and running
+2. Checks Dockerfile and docker-compose.yml exist
+3. Runs `docker compose build`
+4. Displays image size and build time
+
+**Prerequisites:**
+- Docker installed and running
+- `Dockerfile` in project root
+- `docker-compose.yml` in project root
+
+**Lifecycle Phase:** Deploy
+
+---
+
+### `docker-start.sh` - Start Container
+
+Starts the SuiteCRM container with prerequisite validation.
+
+**Location:** `scripts/docker-start.sh`
+
+**Usage:**
+```bash
+./scripts/docker-start.sh        # Interactive mode
+./scripts/docker-start.sh -y     # Non-interactive mode
+```
+
+**Via CLI:**
+```bash
+./scripts/cli.sh docker-start
+```
+
+**Via Menu:**
+```
+Main Menu → Docker Management → Start SuiteCRM
+```
+
+**Pre-Start Checks:**
+1. Docker image exists (offers to build if not)
+2. Azure Files mounted (warns if not)
+3. No existing container running (offers to restart)
+
+**What It Does:**
+1. Validates all prerequisites
+2. Runs `docker compose up -d`
+3. Waits for health check to pass
+4. Displays access URL
+
+**Prerequisites:**
+- Docker image built (`docker-build.sh`)
+- Azure Files mounted (recommended for data persistence)
+
+**Lifecycle Phase:** Deploy
+
+---
+
+### `docker-stop.sh` - Stop Container
+
+Gracefully stops the SuiteCRM container without removing volumes.
+
+**Location:** `scripts/docker-stop.sh`
+
+**Usage:**
+```bash
+./scripts/docker-stop.sh        # Interactive mode
+./scripts/docker-stop.sh -y     # Non-interactive mode
+```
+
+**Via CLI:**
+```bash
+./scripts/cli.sh docker-stop
+```
+
+**Via Menu:**
+```
+Main Menu → Docker Management → Stop SuiteCRM
+```
+
+**What It Does:**
+1. Checks if container is running
+2. Runs `docker compose down`
+3. Verifies container stopped
+
+**Note:** Volumes and data are preserved. Use `docker-teardown.sh` for complete cleanup.
+
+**Lifecycle Phase:** Deploy
+
+---
+
+### `docker-validate.sh` - Validate Docker Environment
+
+Validates the status of all Docker components for SuiteCRM.
+
+**Location:** `scripts/docker-validate.sh`
+
+**Usage:**
+```bash
+./scripts/docker-validate.sh
+```
+
+**Via CLI:**
+```bash
+./scripts/cli.sh docker-validate
+```
+
+**Via Menu:**
+```
+Main Menu → Docker Management → Validate Docker Status
+```
+
+**What It Checks:**
+
+| Component | Type | Description |
+|-----------|------|-------------|
+| Docker daemon | Daemon | Docker service running |
+| SuiteCRM image | Image | Docker image exists |
+| suitecrm-web | Container | Container status |
+| suitecrm-web | Health | Container health check |
+| thebuzzmagazines_* | Volumes | Docker volumes |
+| suitecrm-network | Network | Docker network |
+| /mnt/azure/suitecrm/* | Mounts | Azure Files mounts |
+
+**Output:** Summary table with status of all components
+
+**Lifecycle Phase:** Deploy (verification)
+
+---
+
+### `docker-teardown.sh` - Remove Docker Artifacts (DESTRUCTIVE)
+
+Removes all Docker containers, images, volumes, and networks for SuiteCRM.
+
+**Location:** `scripts/docker-teardown.sh`
+
+**Usage:**
+```bash
+./scripts/docker-teardown.sh           # Interactive (requires confirmation)
+./scripts/docker-teardown.sh -y        # Non-interactive mode
+./scripts/docker-teardown.sh --prune   # Also prune build cache
+```
+
+**Via CLI:**
+```bash
+./scripts/cli.sh docker-teardown
+./scripts/cli.sh docker-teardown --prune
+```
+
+**Via Menu:**
+```
+Main Menu → Docker Management → Teardown Docker (DESTRUCTIVE)
+```
+
+**WARNING: This is a destructive operation!**
+
+**What It Removes:**
+1. SuiteCRM Docker container
+2. SuiteCRM Docker image
+3. Docker volumes (thebuzzmagazines_*)
+4. Docker network
+5. Build cache (with `--prune` flag)
+
+**What It Does NOT Remove:**
+- Azure Files mounts and data
+- Azure cloud resources
+
+**Safety:** Requires typing 'DELETE' to confirm in interactive mode.
+
+**Lifecycle Phase:** Deploy (cleanup)
+
+---
+
 ## Script Dependencies
 
 ```
@@ -266,13 +714,21 @@ sudo ./scripts/azure-mount.sh [action] [options]
 │                     cli.sh (command line)                       │
 └─────────────────────────────────────────────────────────────────┘
                               │
-         ┌────────────────────┼────────────────────┐
-         │                    │                    │
-         ▼                    ▼                    ▼
-┌─────────────┐      ┌─────────────────┐    ┌─────────────┐
-│validate-env │      │azure-provision  │    │azure-mount  │
-│    .sh      │◀─────│      .sh        │────│    .sh      │
-└─────────────┘      └─────────────────┘    └─────────────┘
+    ┌─────────────┬───────────┼───────────┬─────────────┐
+    │             │           │           │             │
+    ▼             ▼           ▼           ▼             ▼
+┌────────┐  ┌──────────┐ ┌─────────┐ ┌─────────┐  ┌──────────┐
+│validate│  │azure-test│ │azure-   │ │azure-   │  │azure-    │
+│-env.sh │  │-capabil- │ │provision│ │teardown │  │mount.sh  │
+│        │  │ities.sh  │ │-infra.sh│ │-infra.sh│  │          │
+└────────┘  └──────────┘ └────┬────┘ └────┬────┘  └──────────┘
+                              │           │
+                              ▼           ▼
+                      ┌───────────────────────┐
+                      │   Azure Cloud         │
+                      │   Resources           │
+                      │   (create/delete)     │
+                      └───────────────────────┘
          │                    │                    │
          │                    │                    │
          ▼                    ▼                    ▼
@@ -346,6 +802,9 @@ nano .env
 
 # 2. Validate configuration
 ./scripts/cli.sh validate-env
+
+# 2a. (Optional) Test Azure capabilities
+./scripts/cli.sh test-azure-capabilities
 
 # 3. Provision Azure resources
 ./scripts/cli.sh provision

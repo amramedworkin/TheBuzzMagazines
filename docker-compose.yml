@@ -2,8 +2,8 @@
 # LOCAL DEVELOPMENT with Azure Backend
 #
 # Prerequisites:
-#   1. Run: ./scripts/azure-provision.sh (creates Azure resources)
-#   2. Run: sudo ./scripts/azure-mount.sh (mounts Azure Files locally)
+#   1. Run: ./scripts/azure-provision-infra.sh (creates Azure resources)
+#   2. Run: sudo ./scripts/azure-mount-fileshare-to-local.sh (mounts Azure Files locally)
 #   3. Run: docker compose up --build -d
 
 services:
@@ -37,7 +37,7 @@ services:
       - SKIP_DB_WAIT=${SKIP_DB_WAIT:-false}
     volumes:
       # Azure Files mounted locally via SMB
-      # These paths are created by: sudo ./scripts/azure-mount.sh
+      # These paths are created by: sudo ./scripts/azure-mount-fileshare-to-local.sh
       - ${AZURE_FILES_MOUNT_BASE:-/mnt/azure/suitecrm}/upload:/var/www/html/public/legacy/upload
       - ${AZURE_FILES_MOUNT_BASE:-/mnt/azure/suitecrm}/custom:/var/www/html/public/legacy/custom
       - ${AZURE_FILES_MOUNT_BASE:-/mnt/azure/suitecrm}/cache:/var/www/html/public/legacy/cache

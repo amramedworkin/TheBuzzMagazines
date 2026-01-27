@@ -6,17 +6,17 @@
 # Reads configuration from .env file
 #
 # Usage:
-#   sudo ./azure-mount.sh              # Interactive mode, mount shares
-#   sudo ./azure-mount.sh -y           # Non-interactive mode
-#   sudo ./azure-mount.sh unmount      # Unmount shares
-#   sudo ./azure-mount.sh unmount -y   # Unmount without prompts
+#   sudo ./azure-mount-fileshare-to-local.sh              # Interactive mode, mount shares
+#   sudo ./azure-mount-fileshare-to-local.sh -y           # Non-interactive mode
+#   sudo ./azure-mount-fileshare-to-local.sh unmount      # Unmount shares
+#   sudo ./azure-mount-fileshare-to-local.sh unmount -y   # Unmount without prompts
 # ============================================================================
 
 # ============================================================================
 # SCRIPT CONFIGURATION
 # ============================================================================
 
-SCRIPT_NAME="azure-mount"
+SCRIPT_NAME="azure-mount-fileshare-to-local"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="${PROJECT_ROOT}/.env"
@@ -144,7 +144,7 @@ handle_error() {
             ;;
         "get_storage_key")
             echo "  - Azure CLI not logged in" >> "$LOG_FILE"
-            echo "  - Storage account does not exist (run azure-provision.sh first)" >> "$LOG_FILE"
+            echo "  - Storage account does not exist (run azure-provision-infra.sh first)" >> "$LOG_FILE"
             echo "  - Insufficient permissions" >> "$LOG_FILE"
             ;;
         "mount_share")
@@ -289,10 +289,11 @@ load_env() {
     source "$ENV_FILE"
     set +a
 
-    # Expand nested variables
-    AZURE_STORAGE_ACCOUNT_NAME="${AZURE_RESOURCE_PREFIX}storage"
-    AZURE_RESOURCE_GROUP="rg-${AZURE_RESOURCE_PREFIX}-suitecrm"
-    MOUNT_BASE="${AZURE_FILES_MOUNT_BASE:-/mnt/azure/suitecrm}"
+    # Expand nested variables from .env (they use ${AZURE_RESOURCE_PREFIX})
+    # These are evaluated here because bash doesn't expand nested vars on source
+    eval "AZURE_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME"
+    eval "AZURE_RESOURCE_GROUP=$AZURE_RESOURCE_GROUP"
+    MOUNT_BASE="${AZURE_FILES_MOUNT_BASE}"
 
     log_info "Storage account: $AZURE_STORAGE_ACCOUNT_NAME"
     log_info "Mount base: $MOUNT_BASE"
@@ -323,7 +324,7 @@ get_storage_key() {
             --account-name "$AZURE_STORAGE_ACCOUNT_NAME" \
             --query '[0].value' -o tsv 2>&1); then
             log_cmd_output "$AZURE_STORAGE_KEY"
-            handle_error "get_storage_key" "Failed to retrieve storage key from Azure. Run azure-provision.sh first or ensure you're logged into Azure CLI."
+            handle_error "get_storage_key" "Failed to retrieve storage key from Azure. Run azure-provision-infra.sh first or ensure you're logged into Azure CLI."
         fi
         
         # Save for future use
@@ -521,7 +522,7 @@ EOF
 These paths are now configured for docker-compose.yml
 
 To unmount:
-  sudo ./scripts/azure-mount.sh unmount
+  sudo ./scripts/azure-mount-fileshare-to-local.sh unmount
 
 Log file: $LOG_FILE
 

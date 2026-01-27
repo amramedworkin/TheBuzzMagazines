@@ -366,7 +366,7 @@ $sugar_config['site_url'] = 'https://yoursite.com';
 
 ### 4.1 Resources Created
 
-The `azure-provision.sh` script creates the following resources:
+The `azure-provision-infra.sh` script creates the following resources:
 
 | Resource | Naming Convention | Purpose |
 |----------|-------------------|---------|
@@ -506,7 +506,7 @@ password=<storage_account_key>
 
 ### 5.6 fstab Entry (Persistent Mounts)
 
-The `azure-mount.sh` script adds entries to `/etc/fstab` for automatic mounting:
+The `azure-mount-fileshare-to-local.sh` script adds entries to `/etc/fstab` for automatic mounting:
 
 ```
 //buzzmagstorage.file.core.windows.net/suitecrm-upload /mnt/azure/suitecrm/upload cifs credentials=/etc/azure-suitecrm-credentials,uid=33,gid=33,dir_mode=0775,file_mode=0775,serverino,nosharesock,actimeo=30 0 0
@@ -676,7 +676,7 @@ az account set --subscription "Your Subscription Name"
 
 Or directly:
 ```bash
-./scripts/azure-provision.sh
+./scripts/azure-provision-infra.sh
 ```
 
 **Non-interactive mode (for automation):**
@@ -738,7 +738,7 @@ sudo ./scripts/cli.sh mount
 
 Or directly:
 ```bash
-sudo ./scripts/azure-mount.sh
+sudo ./scripts/azure-mount-fileshare-to-local.sh
 ```
 
 **Non-interactive mode:**

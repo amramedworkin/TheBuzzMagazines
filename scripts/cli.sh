@@ -96,9 +96,52 @@ Commands:
                                   -y, --yes      Run without prompting
                                 Note: Requires sudo
 
-    show-log-provision          Show the most recent azure-provision.sh log
-    show-log-mount              Show the most recent azure-mount.sh log
+    show-log-provision          Show the most recent azure-provision-infra.sh log
+    show-log-mount              Show the most recent azure-mount-fileshare-to-local.sh log
     list-logs                   List all available logs
+
+    generate-env-example        Generate .env.example from .env
+                                Copies .env to .env.example, replacing sensitive values
+                                (passwords, subscription IDs, API keys) with placeholders
+                                while keeping non-sensitive values (hosts, ports, users)
+
+    test-azure-capabilities     Test Azure CLI capabilities and permissions
+                                Verifies login status, resource creation permissions,
+                                provider registrations, and service accessibility
+                                Creates temporary test resources and cleans them up
+
+    validate-resources          Validate Azure resources exist
+                                Checks all resources defined in .env against Azure
+                                Shows summary table with resource status
+
+    teardown                    Tear down all Azure infrastructure
+                                Deletes MySQL server, ACR, Storage Account, and Resource Group
+                                WARNING: This is destructive and cannot be undone
+
+    docker-build [options]      Build Docker image for SuiteCRM
+                                Options:
+                                  -y, --yes      Run without prompting
+                                  --no-cache     Build without Docker cache
+
+    docker-start [options]      Start SuiteCRM container
+                                Validates image exists and mounts are ready
+                                Options:
+                                  -y, --yes      Run without prompting
+
+    docker-stop [options]       Stop SuiteCRM container gracefully
+                                Options:
+                                  -y, --yes      Run without prompting
+
+    docker-validate             Validate Docker environment
+                                Checks image, container, health, volumes, mounts
+
+    docker-teardown [options]   Remove all Docker artifacts (DESTRUCTIVE)
+                                Removes container, image, volumes, network
+                                Options:
+                                  -y, --yes      Run without prompting
+                                  --prune        Also prune build cache
+
+    docker-logs                 View SuiteCRM container logs
 
     help                        Show this help message
 
@@ -372,10 +415,10 @@ validate_env() {
 # ============================================================================
 
 run_provision() {
-    local provision_script="$SCRIPT_DIR/azure-provision.sh"
+    local provision_script="$SCRIPT_DIR/azure-provision-infra.sh"
     
     if [[ ! -f "$provision_script" ]]; then
-        print_error "azure-provision.sh not found at $provision_script"
+        print_error "azure-provision-infra.sh not found at $provision_script"
         exit 1
     fi
     
@@ -388,10 +431,10 @@ run_provision() {
 # ============================================================================
 
 run_mount() {
-    local mount_script="$SCRIPT_DIR/azure-mount.sh"
+    local mount_script="$SCRIPT_DIR/azure-mount-fileshare-to-local.sh"
     
     if [[ ! -f "$mount_script" ]]; then
-        print_error "azure-mount.sh not found at $mount_script"
+        print_error "azure-mount-fileshare-to-local.sh not found at $mount_script"
         exit 1
     fi
     
@@ -406,10 +449,10 @@ run_mount() {
 }
 
 run_unmount() {
-    local mount_script="$SCRIPT_DIR/azure-mount.sh"
+    local mount_script="$SCRIPT_DIR/azure-mount-fileshare-to-local.sh"
     
     if [[ ! -f "$mount_script" ]]; then
-        print_error "azure-mount.sh not found at $mount_script"
+        print_error "azure-mount-fileshare-to-local.sh not found at $mount_script"
         exit 1
     fi
     
@@ -421,6 +464,120 @@ run_unmount() {
     
     # Run the mount script with unmount action (pass through all arguments)
     "$mount_script" unmount "$@"
+}
+
+run_test_azure_capabilities() {
+    local test_script="$SCRIPT_DIR/azure-test-capabilities.sh"
+    
+    if [[ ! -f "$test_script" ]]; then
+        print_error "azure-test-capabilities.sh not found at $test_script"
+        exit 1
+    fi
+    
+    # Change to project root so script can find .env
+    cd "$PROJECT_ROOT" || exit 1
+    
+    # Run the test script
+    bash "$test_script"
+}
+
+run_teardown() {
+    local teardown_script="$SCRIPT_DIR/azure-teardown-infra.sh"
+    
+    if [[ ! -f "$teardown_script" ]]; then
+        print_error "azure-teardown-infra.sh not found at $teardown_script"
+        exit 1
+    fi
+    
+    # Change to project root so script can find .env
+    cd "$PROJECT_ROOT" || exit 1
+    
+    # Run the teardown script
+    bash "$teardown_script"
+}
+
+run_validate_resources() {
+    local validate_script="$SCRIPT_DIR/azure-validate-resources.sh"
+    
+    if [[ ! -f "$validate_script" ]]; then
+        print_error "azure-validate-resources.sh not found at $validate_script"
+        exit 1
+    fi
+    
+    # Change to project root so script can find .env
+    cd "$PROJECT_ROOT" || exit 1
+    
+    # Run the validate script
+    bash "$validate_script"
+}
+
+# ============================================================================
+# DOCKER FUNCTIONS
+# ============================================================================
+
+run_docker_build() {
+    local build_script="$SCRIPT_DIR/docker-build.sh"
+    
+    if [[ ! -f "$build_script" ]]; then
+        print_error "docker-build.sh not found at $build_script"
+        exit 1
+    fi
+    
+    cd "$PROJECT_ROOT" || exit 1
+    bash "$build_script" "$@"
+}
+
+run_docker_start() {
+    local start_script="$SCRIPT_DIR/docker-start.sh"
+    
+    if [[ ! -f "$start_script" ]]; then
+        print_error "docker-start.sh not found at $start_script"
+        exit 1
+    fi
+    
+    cd "$PROJECT_ROOT" || exit 1
+    bash "$start_script" "$@"
+}
+
+run_docker_stop() {
+    local stop_script="$SCRIPT_DIR/docker-stop.sh"
+    
+    if [[ ! -f "$stop_script" ]]; then
+        print_error "docker-stop.sh not found at $stop_script"
+        exit 1
+    fi
+    
+    cd "$PROJECT_ROOT" || exit 1
+    bash "$stop_script" "$@"
+}
+
+run_docker_validate() {
+    local validate_script="$SCRIPT_DIR/docker-validate.sh"
+    
+    if [[ ! -f "$validate_script" ]]; then
+        print_error "docker-validate.sh not found at $validate_script"
+        exit 1
+    fi
+    
+    cd "$PROJECT_ROOT" || exit 1
+    bash "$validate_script"
+}
+
+run_docker_teardown() {
+    local teardown_script="$SCRIPT_DIR/docker-teardown.sh"
+    
+    if [[ ! -f "$teardown_script" ]]; then
+        print_error "docker-teardown.sh not found at $teardown_script"
+        exit 1
+    fi
+    
+    cd "$PROJECT_ROOT" || exit 1
+    bash "$teardown_script" "$@"
+}
+
+run_docker_logs() {
+    cd "$PROJECT_ROOT" || exit 1
+    docker compose logs -f
 }
 
 # ============================================================================
@@ -499,6 +656,83 @@ list_logs() {
 }
 
 # ============================================================================
+# ENVIRONMENT EXAMPLE GENERATOR
+# ============================================================================
+
+generate_env_example() {
+    print_header "Generating .env.example from .env"
+    
+    local env_file="$PROJECT_ROOT/.env"
+    local example_file="$PROJECT_ROOT/.env.example"
+    
+    if [[ ! -f "$env_file" ]]; then
+        print_error ".env file not found at $env_file"
+        exit 1
+    fi
+    
+    print_info "Reading: $env_file"
+    print_info "Writing: $example_file"
+    
+    # Patterns for sensitive values that should be replaced with placeholders
+    # These patterns match the variable NAME, and we replace their VALUE
+    local sensitive_patterns=(
+        "_PASSWORD"
+        "_SECRET"
+        "_KEY"
+        "_TOKEN"
+        "_API_KEY"
+        "SUBSCRIPTION_ID"
+    )
+    
+    # Process the .env file line by line
+    local replaced_count=0
+    local kept_count=0
+    
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip empty lines and comments - pass through unchanged
+        if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+            echo "$line"
+            continue
+        fi
+        
+        # Check if this is a variable assignment
+        if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+            local var_name="${BASH_REMATCH[1]}"
+            local var_value="${BASH_REMATCH[2]}"
+            
+            # Check if this variable name matches any sensitive pattern
+            local is_sensitive=false
+            for pattern in "${sensitive_patterns[@]}"; do
+                if [[ "$var_name" == *"$pattern"* ]]; then
+                    is_sensitive=true
+                    break
+                fi
+            done
+            
+            if [[ "$is_sensitive" == true ]]; then
+                # Replace with placeholder in [UPPER_CASE] format
+                echo "${var_name}=[YOUR_${var_name}_HERE]"
+                replaced_count=$((replaced_count + 1))
+            else
+                # Keep the original value
+                echo "$line"
+                kept_count=$((kept_count + 1))
+            fi
+        else
+            # Pass through any other lines unchanged
+            echo "$line"
+        fi
+    done < "$env_file" > "$example_file"
+    
+    echo ""
+    print_success ".env.example generated successfully"
+    print_info "Sensitive values replaced: $replaced_count"
+    print_info "Non-sensitive values kept: $kept_count"
+    echo ""
+    print_info "Review $example_file to ensure no sensitive data remains."
+}
+
+# ============================================================================
 # MAIN COMMAND DISPATCHER
 # ============================================================================
 
@@ -533,6 +767,36 @@ main() {
             ;;
         list-logs)
             list_logs
+            ;;
+        generate-env-example)
+            generate_env_example
+            ;;
+        test-azure-capabilities)
+            run_test_azure_capabilities
+            ;;
+        validate-resources)
+            run_validate_resources
+            ;;
+        teardown)
+            run_teardown
+            ;;
+        docker-build)
+            run_docker_build "$@"
+            ;;
+        docker-start)
+            run_docker_start "$@"
+            ;;
+        docker-stop)
+            run_docker_stop "$@"
+            ;;
+        docker-validate)
+            run_docker_validate
+            ;;
+        docker-teardown)
+            run_docker_teardown "$@"
+            ;;
+        docker-logs)
+            run_docker_logs
             ;;
         help|--help|-h|"")
             show_help

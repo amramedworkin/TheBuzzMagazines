@@ -55,6 +55,29 @@ When creating new scripts:
 6. **Use Eastern US timezone** (America/New_York) for log timestamps
 7. **Use consistent logging functions**: `log_info`, `log_success`, `log_warn`, `log_error`, `log_step`
 
+## Infrastructure Script Execution Rules
+
+**CRITICAL: All infrastructure management scripts MUST run in the foreground.**
+
+This includes:
+- `azure-provision-infra.sh` - Create resources
+- `azure-teardown-infra.sh` - Delete resources
+- `azure-test-capabilities.sh` - Test permissions
+- `azure-mount-fileshare-to-local.sh` - Mount/unmount file shares
+- Any future migration, test, or infrastructure scripts
+
+**Why foreground execution is mandatory:**
+- The entire purpose of these scripts is to manage and view activities in real-time
+- Backgrounding processes completely negates visibility and control
+- If we have to wait for Azure operations, we wait - that's expected behavior
+- Users need to see progress, errors, and success messages as they happen
+
+**Do NOT use:**
+- `&` to background processes
+- `--no-wait` flags in Azure CLI commands
+- `nohup` or similar backgrounding utilities
+- Any mechanism that detaches the process from the terminal
+
 ## File Update Checklist
 
 ### Adding a new .env variable
@@ -86,8 +109,10 @@ When creating new scripts:
 | `scripts/validate-env.sh` | Environment validation |
 | `scripts/cli.sh` | Command-line interface |
 | `scripts/menu.sh` | Interactive menu |
-| `scripts/azure-provision.sh` | Azure resource creation |
-| `scripts/azure-mount.sh` | Azure Files mounting |
+| `scripts/azure-provision-infra.sh` | Azure resource creation |
+| `scripts/azure-teardown-infra.sh` | Azure resource deletion |
+| `scripts/azure-test-capabilities.sh` | Azure permission testing |
+| `scripts/azure-mount-fileshare-to-local.sh` | Azure Files mounting |
 | `docs/ENV_GUIDE.md` | Environment variable documentation |
 | `docs/SCRIPTS_GUIDE.md` | Scripts documentation |
 | `docs/MIGRATION_PROVISIONING_GUIDE.md` | Complete deployment walkthrough |

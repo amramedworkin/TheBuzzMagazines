@@ -38,11 +38,13 @@ load_env() {
         source "$env_file"
         set +a
         
-        # Expand nested variables
-        AZURE_RESOURCE_GROUP="rg-${AZURE_RESOURCE_PREFIX}-suitecrm"
-        AZURE_PROVISION_MYSQL_SERVER_NAME="${AZURE_RESOURCE_PREFIX}-mysql"
-        AZURE_STORAGE_ACCOUNT_NAME="${AZURE_RESOURCE_PREFIX}storage"
-        AZURE_ACR_NAME="${AZURE_RESOURCE_PREFIX}acr"
+        # Expand nested variables from .env (they use ${AZURE_RESOURCE_PREFIX})
+        # These are evaluated here because bash doesn't expand nested vars on source
+        eval "AZURE_RESOURCE_GROUP=$AZURE_RESOURCE_GROUP"
+        eval "AZURE_PROVISION_MYSQL_SERVER_NAME=$AZURE_PROVISION_MYSQL_SERVER_NAME"
+        eval "AZURE_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME"
+        eval "AZURE_ACR_NAME=$AZURE_ACR_NAME"
+        eval "AZURE_CONTAINER_APP_ENV=$AZURE_CONTAINER_APP_ENV"
     fi
 }
 
@@ -164,6 +166,7 @@ show_environment_menu() {
     
     print_action_option "1" "Validate .env file"
     print_action_option "2" "Edit .env file"
+    print_action_option "3" "Generate .env.example (sanitize sensitive data)"
     echo ""
     print_action_option "0" "Back to Main Menu"
     echo ""
@@ -177,6 +180,7 @@ handle_environment_menu() {
         case $choice in
             1) validate_env_interactive ;;
             2) edit_env ;;
+            3) generate_env_example_interactive ;;
             0) return ;;
             *) ;;
         esac
@@ -195,6 +199,10 @@ show_azure_menu() {
     print_action_option "2" "Run Provisioning"
     print_action_option "3" "Mount Azure Files"
     print_action_option "4" "Unmount Azure Files"
+    print_action_option "5" "Test Azure Capabilities"
+    print_action_option "6" "Validate Resources"
+    echo -e "  ${RED}---${NC}"
+    print_action_option "7" "Teardown Infrastructure (DESTRUCTIVE)"
     echo ""
     print_action_option "0" "Back to Main Menu"
     echo ""
@@ -210,6 +218,9 @@ handle_azure_menu() {
             2) run_provision_interactive ;;
             3) run_mount_interactive ;;
             4) run_unmount_interactive ;;
+            5) test_azure_capabilities_interactive ;;
+            6) validate_resources_interactive ;;
+            7) run_teardown_interactive ;;
             0) return ;;
             *) ;;
         esac
@@ -228,7 +239,10 @@ show_docker_menu() {
     print_action_option "2" "Start SuiteCRM"
     print_action_option "3" "Stop SuiteCRM"
     print_action_option "4" "Restart SuiteCRM"
-    print_action_option "5" "View Docker Logs"
+    print_action_option "5" "Validate Docker Status"
+    print_action_option "6" "View Docker Logs"
+    echo -e "  ${RED}---${NC}"
+    print_action_option "7" "Teardown Docker (DESTRUCTIVE)"
     echo ""
     print_action_option "0" "Back to Main Menu"
     echo ""
@@ -240,11 +254,13 @@ handle_docker_menu() {
         show_docker_menu
         read -r choice
         case $choice in
-            1) docker_build ;;
-            2) docker_start ;;
-            3) docker_stop ;;
+            1) docker_build_interactive ;;
+            2) docker_start_interactive ;;
+            3) docker_stop_interactive ;;
             4) restart_suitecrm ;;
-            5) docker_logs ;;
+            5) docker_validate_interactive ;;
+            6) docker_logs ;;
+            7) docker_teardown_interactive ;;
             0) return ;;
             *) ;;
         esac
@@ -361,6 +377,59 @@ edit_env() {
     load_env  # Reload after editing
 }
 
+generate_env_example_interactive() {
+    show_header "Generate .env.example"
+    
+    "$CLI_SCRIPT" generate-env-example
+    
+    echo ""
+    echo "Press Enter to continue..."
+    read -r
+}
+
+test_azure_capabilities_interactive() {
+    show_header "Test Azure Capabilities"
+    
+    "$CLI_SCRIPT" test-azure-capabilities
+    
+    echo ""
+    echo "Press Enter to continue..."
+    read -r
+}
+
+validate_resources_interactive() {
+    show_header "Validate Azure Resources"
+    
+    "$CLI_SCRIPT" validate-resources
+    
+    echo ""
+    echo "Press Enter to continue..."
+    read -r
+}
+
+run_teardown_interactive() {
+    show_header "Teardown Azure Infrastructure"
+    
+    echo -e "${RED}WARNING: This will permanently delete all Azure resources!${NC}"
+    echo -e "${RED}This includes: MySQL Server, Storage Account, ACR, and Resource Group${NC}"
+    echo ""
+    echo -n "Type 'DELETE' to confirm: "
+    read -r confirm
+    
+    if [[ "$confirm" != "DELETE" ]]; then
+        echo -e "${YELLOW}Teardown cancelled.${NC}"
+        echo "Press Enter to continue..."
+        read -r
+        return
+    fi
+    
+    "$CLI_SCRIPT" teardown
+    
+    echo ""
+    echo "Press Enter to continue..."
+    read -r
+}
+
 azure_login() {
     show_header "Azure Login"
     
@@ -403,7 +472,7 @@ run_mount_interactive() {
         echo ""
         echo "Re-running with sudo..."
         echo ""
-        sudo "$SCRIPT_DIR/azure-mount.sh"
+        sudo "$SCRIPT_DIR/azure-mount-fileshare-to-local.sh"
     else
         "$CLI_SCRIPT" mount
     fi
@@ -421,7 +490,7 @@ run_unmount_interactive() {
         echo ""
         echo "Re-running with sudo..."
         echo ""
-        sudo "$SCRIPT_DIR/azure-mount.sh" unmount
+        sudo "$SCRIPT_DIR/azure-mount-fileshare-to-local.sh" unmount
     else
         "$CLI_SCRIPT" unmount
     fi
@@ -431,39 +500,54 @@ run_unmount_interactive() {
     read -r
 }
 
-docker_build() {
+docker_build_interactive() {
     show_header "Build Docker Image"
     
-    cd "$PROJECT_DIR" || exit
-    docker compose build
+    "$CLI_SCRIPT" docker-build
     
     echo ""
     echo "Press Enter to continue..."
     read -r
 }
 
-docker_start() {
+docker_start_interactive() {
     show_header "Start SuiteCRM"
     
-    cd "$PROJECT_DIR" || exit
-    docker compose up -d
+    "$CLI_SCRIPT" docker-start
     
-    echo ""
-    echo -e "${GREEN}SuiteCRM starting...${NC}"
-    echo "Access at: http://localhost"
     echo ""
     echo "Press Enter to continue..."
     read -r
 }
 
-docker_stop() {
+docker_stop_interactive() {
     show_header "Stop SuiteCRM"
     
-    cd "$PROJECT_DIR" || exit
-    docker compose down
+    "$CLI_SCRIPT" docker-stop
     
     echo ""
-    echo -e "${GREEN}SuiteCRM stopped.${NC}"
+    echo "Press Enter to continue..."
+    read -r
+}
+
+docker_validate_interactive() {
+    show_header "Validate Docker Status"
+    
+    "$CLI_SCRIPT" docker-validate
+    
+    echo ""
+    echo "Press Enter to continue..."
+    read -r
+}
+
+docker_teardown_interactive() {
+    show_header "Teardown Docker"
+    
+    echo -e "${RED}WARNING: This will remove all Docker containers, images, and volumes!${NC}"
+    echo ""
+    
+    "$CLI_SCRIPT" docker-teardown
+    
     echo ""
     echo "Press Enter to continue..."
     read -r
@@ -607,7 +691,7 @@ full_setup() {
     echo -e "${CYAN}Step 3/5: Mounting Azure Files...${NC}"
     if [[ $EUID -ne 0 ]]; then
         echo -e "${YELLOW}Mounting requires sudo...${NC}"
-        if ! sudo "$SCRIPT_DIR/azure-mount.sh" -y; then
+        if ! sudo "$SCRIPT_DIR/azure-mount-fileshare-to-local.sh" -y; then
             echo -e "${RED}Mount failed. Check logs.${NC}"
             echo "Press Enter to continue..."
             read -r

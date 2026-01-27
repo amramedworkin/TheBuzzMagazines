@@ -10,10 +10,10 @@ Environment variables are organized into logical groups based on their purpose:
 
 | Group Prefix | Purpose | Used By |
 |--------------|---------|---------|
-| `AZURE_PROVISION_MYSQL_*` | Azure MySQL server infrastructure creation | `azure-provision.sh` |
-| `AZURE_RESOURCE_*` | Azure resource naming and location | `azure-provision.sh` |
-| `AZURE_STORAGE_*` | Azure Files storage account | `azure-provision.sh`, `azure-mount.sh` |
-| `AZURE_ACR_*` | Azure Container Registry | `azure-provision.sh` |
+| `AZURE_PROVISION_MYSQL_*` | Azure MySQL server infrastructure creation | `azure-provision-infra.sh` |
+| `AZURE_RESOURCE_*` | Azure resource naming and location | `azure-provision-infra.sh` |
+| `AZURE_STORAGE_*` | Azure Files storage account | `azure-provision-infra.sh`, `azure-mount-fileshare-to-local.sh` |
+| `AZURE_ACR_*` | Azure Container Registry | `azure-provision-infra.sh` |
 | `AZURE_CONTAINER_*` | Azure Container Apps settings | Deployment scripts |
 | `SUITECRM_RUNTIME_MYSQL_*` | Docker container DB connection | `docker-compose.yml`, `docker-entrypoint.sh` |
 | `SUITECRM_*` | SuiteCRM application settings | `docker-entrypoint.sh` |
@@ -262,12 +262,12 @@ Options:
 
 4. Provision Azure resources:
    ```bash
-   ./scripts/azure-provision.sh
+   ./scripts/azure-provision-infra.sh
    ```
 
 5. Mount Azure Files:
    ```bash
-   sudo ./scripts/azure-mount.sh
+   sudo ./scripts/azure-mount-fileshare-to-local.sh
    ```
 
 6. Start Docker:
