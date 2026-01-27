@@ -1,0 +1,108 @@
+# TheBuzzMagazines Project Rules
+# These rules are automatically applied when working in this project
+
+## Documentation Requirements
+
+### Environment Variables (.env)
+
+When adding, removing, or modifying environment variables:
+
+1. **Update `.env.example`** - Add the new variable with placeholder or default value
+2. **Update `scripts/validate-env.sh`** - Add validation logic for the new variable
+3. **Update `docs/ENV_GUIDE.md`** - Document the variable in the appropriate section:
+   - Add to the correct group table
+   - Include: Variable name, Required status, Description, Default, Example
+   - Update the Overview table if adding a new group prefix
+
+### Scripts (scripts/ folder)
+
+When adding, removing, or modifying scripts:
+
+1. **Update `scripts/cli.sh`** - Add command dispatcher entry and help text
+2. **Update `scripts/menu.sh`** - Add menu option in appropriate submenu
+3. **Update `docs/SCRIPTS_GUIDE.md`** - Document the script:
+   - Add to Script Reference section
+   - Include: Location, Usage, Options, What it does, Examples
+   - Update the Overview table if adding a new lifecycle phase
+   - Update Script Dependencies diagram if relevant
+
+## Environment Variable Naming Conventions
+
+Use the following prefixes for environment variables:
+
+| Prefix | Purpose |
+|--------|---------|
+| `AZURE_PROVISION_MYSQL_*` | Azure MySQL server creation (infrastructure) |
+| `AZURE_RESOURCE_*` | Azure resource naming and location |
+| `AZURE_STORAGE_*` | Azure Files storage account |
+| `AZURE_ACR_*` | Azure Container Registry |
+| `AZURE_CONTAINER_*` | Azure Container Apps |
+| `SUITECRM_RUNTIME_MYSQL_*` | Docker container database connection |
+| `SUITECRM_*` | SuiteCRM application settings |
+| `MIGRATION_SOURCE_MYSQL_*` | Legacy database to read FROM |
+| `MIGRATION_DEST_MYSQL_*` | SuiteCRM database to write TO |
+| `BUZZ_ADVERT_MSACCESS_*` | Legacy MS Access database |
+
+## Script Conventions
+
+When creating new scripts:
+
+1. **Use `#!/bin/bash`** as the shebang
+2. **Support `-y` / `--yes`** for non-interactive mode (if long-running)
+3. **Support `-h` / `--help`** for help
+4. **Call `validate-env.sh`** if using `.env` variables
+5. **Write logs to `logs/` folder** with timestamp format: `latest_<script>_YYYYMMDD_HHMMSS.log`
+6. **Use Eastern US timezone** (America/New_York) for log timestamps
+7. **Use consistent logging functions**: `log_info`, `log_success`, `log_warn`, `log_error`, `log_step`
+
+## File Update Checklist
+
+### Adding a new .env variable
+
+- [ ] Add to `.env.example` with placeholder
+- [ ] Add to `scripts/validate-env.sh` (get_env_value, validation function)
+- [ ] Add to `docs/ENV_GUIDE.md` (correct section table)
+- [ ] Update any scripts that should use the new variable
+
+### Adding a new script
+
+- [ ] Add command to `scripts/cli.sh` (show_help, main dispatcher)
+- [ ] Add menu option to `scripts/menu.sh` (correct submenu)
+- [ ] Add documentation to `docs/SCRIPTS_GUIDE.md`
+- [ ] Follow script conventions (logging, flags, etc.)
+
+### Modifying existing scripts
+
+- [ ] Update `docs/SCRIPTS_GUIDE.md` if behavior changes
+- [ ] Update `scripts/cli.sh` help if command options change
+- [ ] Update `scripts/menu.sh` if menu labels should change
+
+## Important Files Reference
+
+| File | Purpose |
+|------|---------|
+| `.env` | Active environment configuration (git-ignored) |
+| `.env.example` | Template for .env (committed) |
+| `scripts/validate-env.sh` | Environment validation |
+| `scripts/cli.sh` | Command-line interface |
+| `scripts/menu.sh` | Interactive menu |
+| `scripts/azure-provision.sh` | Azure resource creation |
+| `scripts/azure-mount.sh` | Azure Files mounting |
+| `docs/ENV_GUIDE.md` | Environment variable documentation |
+| `docs/SCRIPTS_GUIDE.md` | Scripts documentation |
+| `docs/MIGRATION_PROVISIONING_GUIDE.md` | Complete deployment walkthrough |
+| `docker-entrypoint.sh` | Container startup (reads SUITECRM_RUNTIME_MYSQL_*) |
+| `docker-compose.yml` | Docker configuration |
+| `Dockerfile` | Container build definition |
+
+## Documentation Update Triggers
+
+When making changes, ensure relevant docs are updated:
+
+| Change Type | Update These Docs |
+|-------------|-------------------|
+| Add/modify .env variable | `docs/ENV_GUIDE.md`, `docs/MIGRATION_PROVISIONING_GUIDE.md` (if architecture-related) |
+| Add/modify script | `docs/SCRIPTS_GUIDE.md` |
+| Change Docker build | `docs/MIGRATION_PROVISIONING_GUIDE.md` Section 3 |
+| Change Azure resources | `docs/MIGRATION_PROVISIONING_GUIDE.md` Section 4, 7.6 |
+| Change mount configuration | `docs/MIGRATION_PROVISIONING_GUIDE.md` Section 5 |

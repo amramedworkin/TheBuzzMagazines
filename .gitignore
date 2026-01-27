@@ -2,6 +2,10 @@
 .env
 .azure-secrets
 
+# Logs (runtime logs, not version controlled)
+logs/*.log
+!logs/.gitkeep
+
 # Scratch files and folders
 scratch/
 scratch*

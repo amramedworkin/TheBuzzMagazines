@@ -1,0 +1,89 @@
+@startuml TheBuzzMagazines SuiteCRM Architecture
+
+!define AZURE_BLUE #0078D4
+!define AZURE_GREEN #7FBA00
+!define AZURE_ORANGE #F25022
+!define AZURE_YELLOW #FFB900
+
+skinparam backgroundColor #FFFFFF
+skinparam componentStyle rectangle
+
+title TheBuzzMagazines SuiteCRM - Azure Architecture
+
+' External Actors
+actor "Users" as users
+actor "Admin" as admin
+
+' Azure Resource Group
+package "Azure Resource Group\nrg-buzzmag-suitecrm" as rg {
+    
+    ' Azure Container Apps Environment
+    package "Container Apps Environment\nbuzzmag-cae" as cae {
+        
+        component "Container App\nsuitecrm" as ca {
+            component "SuiteCRM\n8.8.0" as crm
+            component "PHP 8.3" as php
+            component "Apache" as apache
+        }
+        
+        note right of ca
+            Serverless
+            Auto-scaling (1-3 replicas)
+            HTTPS ingress
+        end note
+    }
+    
+    ' Azure MySQL
+    database "Azure Database for MySQL\nbuzzmag-mysql.mysql.database.azure.com" as mysql {
+        component "suitecrm\ndatabase" as db
+    }
+    
+    note right of mysql
+        Flexible Server
+        Standard_B1ms
+        SSL Required
+        Auto-backups
+    end note
+    
+    ' Azure Storage
+    storage "Azure Storage Account\nbuzzmagstorage" as storage {
+        folder "suitecrm-upload" as upload
+        folder "suitecrm-custom" as custom
+        folder "suitecrm-cache" as cache
+    }
+    
+    note right of storage
+        Azure Files (SMB)
+        Standard LRS
+        Hot access tier
+    end note
+    
+    ' Azure Container Registry
+    component "Container Registry\nbuzzmagacr.azurecr.io" as acr {
+        artifact "suitecrm:8.8.0" as image
+    }
+}
+
+' Connections
+users --> apache : HTTPS\n(Port 443)
+admin --> apache : HTTPS\n(Port 443)
+
+apache --> php
+php --> crm
+crm --> db : MySQL\n(Port 3306, SSL)
+
+crm --> upload : Volume Mount\n/public/legacy/upload
+crm --> custom : Volume Mount\n/public/legacy/custom
+crm --> cache : Volume Mount\n/public/legacy/cache
+
+acr --> ca : Deploy\nImage Pull
+
+' Legend
+legend right
+    |= Color |= Component |
+    | <AZURE_BLUE> | Compute |
+    | <AZURE_GREEN> | Database |
+    | <AZURE_YELLOW> | Storage |
+end legend
+
+@enduml

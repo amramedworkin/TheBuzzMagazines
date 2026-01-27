@@ -73,13 +73,40 @@ Commands:
                                 Output: database/backups/<db>_schema_<name>_<timestamp>.sql
                                 Example: $(basename "$0") backup-schema-source initial_schema
 
+    validate-env [options]      Validate .env file for required values and placeholders
+                                Checks that all required variables are set and not placeholders
+                                Returns exit code 1 if validation fails
+                                Options:
+                                  --errors-only  Only show errors (no warnings/success)
+                                  --quiet        Minimal output, just pass/fail
+
+    provision [options]         Run Azure resource provisioning
+                                Creates Azure MySQL, Storage, ACR resources
+                                Options:
+                                  -y, --yes      Run without prompting
+
+    mount [options]             Mount Azure Files locally
+                                Mounts Azure file shares for local development
+                                Options:
+                                  -y, --yes      Run without prompting
+                                Note: Requires sudo
+
+    unmount [options]           Unmount Azure Files
+                                Options:
+                                  -y, --yes      Run without prompting
+                                Note: Requires sudo
+
+    show-log-provision          Show the most recent azure-provision.sh log
+    show-log-mount              Show the most recent azure-mount.sh log
+    list-logs                   List all available logs
+
     help                        Show this help message
 
 Environment:
     Configuration is loaded from .env file in project root.
     Required variables for database operations:
-        SOURCE_DB_HOST, SOURCE_DB_PORT, SOURCE_DB_NAME
-        SOURCE_DB_USER, SOURCE_DB_PASSWORD
+        MIGRATION_SOURCE_MYSQL_HOST, MIGRATION_SOURCE_MYSQL_PORT, MIGRATION_SOURCE_MYSQL_NAME
+        MIGRATION_SOURCE_MYSQL_USER, MIGRATION_SOURCE_MYSQL_PASSWORD
 
 Examples:
     $(basename "$0") backup-db-source
@@ -87,6 +114,8 @@ Examples:
     $(basename "$0") backup-db-source before_updating_schema
     $(basename "$0") backup-schema-source initial_schema
     $(basename "$0") backup-schema-source after_adding_views
+    $(basename "$0") show-log-provision
+    $(basename "$0") show-log-mount
 
 EOF
 }
@@ -104,9 +133,9 @@ backup_db_source() {
     if [[ -n "$name_component" ]]; then
         # Sanitize the name component (replace spaces and special chars with underscore)
         name_component=$(echo "$name_component" | sed 's/[^a-zA-Z0-9_-]/_/g')
-        backup_filename="${SOURCE_DB_NAME}_${name_component}_${timestamp}.sql"
+        backup_filename="${MIGRATION_SOURCE_MYSQL_NAME}_${name_component}_${timestamp}.sql"
     else
-        backup_filename="${SOURCE_DB_NAME}_${timestamp}.sql"
+        backup_filename="${MIGRATION_SOURCE_MYSQL_NAME}_${timestamp}.sql"
     fi
     
     local backup_path="$BACKUP_DIR/$backup_filename"
@@ -115,13 +144,13 @@ backup_db_source() {
     print_header "Backing Up Source Database"
     
     # Validate required environment variables
-    if [[ -z "$SOURCE_DB_NAME" ]]; then
-        print_error "SOURCE_DB_NAME is not set in .env"
+    if [[ -z "$MIGRATION_SOURCE_MYSQL_NAME" ]]; then
+        print_error "MIGRATION_SOURCE_MYSQL_NAME is not set in .env"
         exit 1
     fi
     
-    print_info "Database: $SOURCE_DB_NAME"
-    print_info "Host: ${SOURCE_DB_HOST:-localhost}:${SOURCE_DB_PORT:-3306}"
+    print_info "Database: $MIGRATION_SOURCE_MYSQL_NAME"
+    print_info "Host: ${MIGRATION_SOURCE_MYSQL_HOST:-localhost}:${MIGRATION_SOURCE_MYSQL_PORT:-3306}"
     print_info "Backup file: $backup_filename"
     print_info "Backup location: $BACKUP_DIR/"
     
@@ -133,23 +162,23 @@ backup_db_source() {
     local mysql_opts=""
     
     # Add host if specified
-    if [[ -n "$SOURCE_DB_HOST" ]]; then
-        mysql_opts="$mysql_opts -h $SOURCE_DB_HOST"
+    if [[ -n "$MIGRATION_SOURCE_MYSQL_HOST" ]]; then
+        mysql_opts="$mysql_opts -h $MIGRATION_SOURCE_MYSQL_HOST"
     fi
     
     # Add port if specified
-    if [[ -n "$SOURCE_DB_PORT" ]]; then
-        mysql_opts="$mysql_opts -P $SOURCE_DB_PORT"
+    if [[ -n "$MIGRATION_SOURCE_MYSQL_PORT" ]]; then
+        mysql_opts="$mysql_opts -P $MIGRATION_SOURCE_MYSQL_PORT"
     fi
     
     # Add user if specified
-    if [[ -n "$SOURCE_DB_USER" ]]; then
-        mysql_opts="$mysql_opts -u $SOURCE_DB_USER"
+    if [[ -n "$MIGRATION_SOURCE_MYSQL_USER" ]]; then
+        mysql_opts="$mysql_opts -u $MIGRATION_SOURCE_MYSQL_USER"
     fi
     
     # Add password if specified
-    if [[ -n "$SOURCE_DB_PASSWORD" ]]; then
-        mysql_opts="$mysql_opts -p$SOURCE_DB_PASSWORD"
+    if [[ -n "$MIGRATION_SOURCE_MYSQL_PASSWORD" ]]; then
+        mysql_opts="$mysql_opts -p$MIGRATION_SOURCE_MYSQL_PASSWORD"
     fi
     
     # Perform the backup with full schema and data
@@ -181,7 +210,7 @@ backup_db_source() {
         --extended-insert \
         --quick \
         --lock-tables=false \
-        --databases "$SOURCE_DB_NAME" > "$backup_path" 2>&1; then
+        --databases "$MIGRATION_SOURCE_MYSQL_NAME" > "$backup_path" 2>&1; then
         
         # Get file size
         local file_size=$(du -h "$backup_path" | cut -f1)
@@ -235,20 +264,20 @@ backup_schema_source() {
     
     # Sanitize the name component (replace spaces and special chars with underscore)
     name_component=$(echo "$name_component" | sed 's/[^a-zA-Z0-9_-]/_/g')
-    backup_filename="${SOURCE_DB_NAME}_schema_${name_component}_${timestamp}.sql"
+    backup_filename="${MIGRATION_SOURCE_MYSQL_NAME}_schema_${name_component}_${timestamp}.sql"
     
     local backup_path="$SCHEMA_BACKUP_DIR/$backup_filename"
     
     print_header "Backing Up Source Database Schema (No Data)"
     
     # Validate required environment variables
-    if [[ -z "$SOURCE_DB_NAME" ]]; then
-        print_error "SOURCE_DB_NAME is not set in .env"
+    if [[ -z "$MIGRATION_SOURCE_MYSQL_NAME" ]]; then
+        print_error "MIGRATION_SOURCE_MYSQL_NAME is not set in .env"
         exit 1
     fi
     
-    print_info "Database: $SOURCE_DB_NAME"
-    print_info "Host: ${SOURCE_DB_HOST:-localhost}:${SOURCE_DB_PORT:-3306}"
+    print_info "Database: $MIGRATION_SOURCE_MYSQL_NAME"
+    print_info "Host: ${MIGRATION_SOURCE_MYSQL_HOST:-localhost}:${MIGRATION_SOURCE_MYSQL_PORT:-3306}"
     print_info "Schema file: $backup_filename"
     print_info "Backup location: $SCHEMA_BACKUP_DIR/"
     
@@ -260,23 +289,23 @@ backup_schema_source() {
     local mysql_opts=""
     
     # Add host if specified
-    if [[ -n "$SOURCE_DB_HOST" ]]; then
-        mysql_opts="$mysql_opts -h $SOURCE_DB_HOST"
+    if [[ -n "$MIGRATION_SOURCE_MYSQL_HOST" ]]; then
+        mysql_opts="$mysql_opts -h $MIGRATION_SOURCE_MYSQL_HOST"
     fi
     
     # Add port if specified
-    if [[ -n "$SOURCE_DB_PORT" ]]; then
-        mysql_opts="$mysql_opts -P $SOURCE_DB_PORT"
+    if [[ -n "$MIGRATION_SOURCE_MYSQL_PORT" ]]; then
+        mysql_opts="$mysql_opts -P $MIGRATION_SOURCE_MYSQL_PORT"
     fi
     
     # Add user if specified
-    if [[ -n "$SOURCE_DB_USER" ]]; then
-        mysql_opts="$mysql_opts -u $SOURCE_DB_USER"
+    if [[ -n "$MIGRATION_SOURCE_MYSQL_USER" ]]; then
+        mysql_opts="$mysql_opts -u $MIGRATION_SOURCE_MYSQL_USER"
     fi
     
     # Add password if specified
-    if [[ -n "$SOURCE_DB_PASSWORD" ]]; then
-        mysql_opts="$mysql_opts -p$SOURCE_DB_PASSWORD"
+    if [[ -n "$MIGRATION_SOURCE_MYSQL_PASSWORD" ]]; then
+        mysql_opts="$mysql_opts -p$MIGRATION_SOURCE_MYSQL_PASSWORD"
     fi
     
     # Perform the schema-only backup
@@ -300,7 +329,7 @@ backup_schema_source() {
         --add-drop-database \
         --add-drop-table \
         --create-options \
-        --databases "$SOURCE_DB_NAME" > "$backup_path" 2>&1; then
+        --databases "$MIGRATION_SOURCE_MYSQL_NAME" > "$backup_path" 2>&1; then
         
         # Get file size
         local file_size=$(du -h "$backup_path" | cut -f1)
@@ -323,6 +352,153 @@ backup_schema_source() {
 }
 
 # ============================================================================
+# ENVIRONMENT VALIDATION
+# ============================================================================
+
+validate_env() {
+    local validate_script="$SCRIPT_DIR/validate-env.sh"
+    
+    if [[ ! -f "$validate_script" ]]; then
+        print_error "validate-env.sh not found at $validate_script"
+        exit 1
+    fi
+    
+    # Run the validation script (pass through all arguments)
+    "$validate_script" "$@"
+}
+
+# ============================================================================
+# AZURE PROVISIONING
+# ============================================================================
+
+run_provision() {
+    local provision_script="$SCRIPT_DIR/azure-provision.sh"
+    
+    if [[ ! -f "$provision_script" ]]; then
+        print_error "azure-provision.sh not found at $provision_script"
+        exit 1
+    fi
+    
+    # Run the provisioning script (pass through all arguments)
+    "$provision_script" "$@"
+}
+
+# ============================================================================
+# AZURE FILES MOUNT
+# ============================================================================
+
+run_mount() {
+    local mount_script="$SCRIPT_DIR/azure-mount.sh"
+    
+    if [[ ! -f "$mount_script" ]]; then
+        print_error "azure-mount.sh not found at $mount_script"
+        exit 1
+    fi
+    
+    # Check if running as root
+    if [[ $EUID -ne 0 ]]; then
+        print_error "Mount requires sudo. Run: sudo $0 mount $*"
+        exit 1
+    fi
+    
+    # Run the mount script (pass through all arguments)
+    "$mount_script" "$@"
+}
+
+run_unmount() {
+    local mount_script="$SCRIPT_DIR/azure-mount.sh"
+    
+    if [[ ! -f "$mount_script" ]]; then
+        print_error "azure-mount.sh not found at $mount_script"
+        exit 1
+    fi
+    
+    # Check if running as root
+    if [[ $EUID -ne 0 ]]; then
+        print_error "Unmount requires sudo. Run: sudo $0 unmount $*"
+        exit 1
+    fi
+    
+    # Run the mount script with unmount action (pass through all arguments)
+    "$mount_script" unmount "$@"
+}
+
+# ============================================================================
+# LOG VIEWING FUNCTIONS
+# ============================================================================
+
+LOGS_DIR="$PROJECT_ROOT/logs"
+
+show_log() {
+    local script_name="$1"
+    local log_pattern="${LOGS_DIR}/latest_${script_name}_*.log"
+    
+    # Find the latest log file
+    local latest_log
+    latest_log=$(ls -t $log_pattern 2>/dev/null | head -1)
+    
+    if [[ -z "$latest_log" || ! -f "$latest_log" ]]; then
+        print_error "No log found for ${script_name}"
+        print_info "Run the ${script_name}.sh script first to generate a log"
+        exit 1
+    fi
+    
+    print_header "Most Recent ${script_name} Log"
+    echo "File: $latest_log"
+    echo ""
+    cat "$latest_log"
+}
+
+list_logs() {
+    print_header "Available Logs"
+    
+    if [[ ! -d "$LOGS_DIR" ]]; then
+        print_info "No logs directory found"
+        exit 0
+    fi
+    
+    local log_count
+    log_count=$(find "$LOGS_DIR" -name "*.log" 2>/dev/null | wc -l)
+    
+    if [[ "$log_count" -eq 0 ]]; then
+        print_info "No log files found"
+        exit 0
+    fi
+    
+    echo "Latest logs (prefixed with 'latest_'):"
+    echo ""
+    
+    # Show latest logs first
+    for log in "${LOGS_DIR}"/latest_*.log; do
+        if [[ -f "$log" ]]; then
+            local size
+            size=$(du -h "$log" | cut -f1)
+            local modified
+            modified=$(stat -c '%y' "$log" 2>/dev/null | cut -d'.' -f1)
+            echo "  [LATEST] $(basename "$log") ($size, $modified)"
+        fi
+    done
+    
+    echo ""
+    echo "Previous logs:"
+    echo ""
+    
+    # Show non-latest logs
+    for log in "${LOGS_DIR}"/*.log; do
+        if [[ -f "$log" && ! "$(basename "$log")" =~ ^latest_ ]]; then
+            local size
+            size=$(du -h "$log" | cut -f1)
+            local modified
+            modified=$(stat -c '%y' "$log" 2>/dev/null | cut -d'.' -f1)
+            echo "  $(basename "$log") ($size, $modified)"
+        fi
+    done
+    
+    echo ""
+    print_info "Log directory: $LOGS_DIR"
+}
+
+# ============================================================================
 # MAIN COMMAND DISPATCHER
 # ============================================================================
 
@@ -336,6 +512,27 @@ main() {
             ;;
         backup-schema-source)
             backup_schema_source "$1"
+            ;;
+        validate-env)
+            validate_env "$@"
+            ;;
+        provision)
+            run_provision "$@"
+            ;;
+        mount)
+            run_mount "$@"
+            ;;
+        unmount)
+            run_unmount "$@"
+            ;;
+        show-log-provision)
+            show_log "azure-provision"
+            ;;
+        show-log-mount)
+            show_log "azure-mount"
+            ;;
+        list-logs)
+            list_logs
             ;;
         help|--help|-h|"")
             show_help

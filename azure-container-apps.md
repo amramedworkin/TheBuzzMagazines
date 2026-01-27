@@ -156,18 +156,18 @@ az containerapp create \
   --cpu 1 \
   --memory 2Gi \
   --env-vars \
-    DATABASE_HOST=mysql-suitecrm.mysql.database.azure.com \
-    DATABASE_PORT=3306 \
-    DATABASE_NAME=suitecrm \
-    DATABASE_USER=suitecrm \
-    DATABASE_SSL_ENABLED=true \
-    DATABASE_SSL_VERIFY=true \
+    SUITECRM_RUNTIME_MYSQL_HOST=mysql-suitecrm.mysql.database.azure.com \
+    SUITECRM_RUNTIME_MYSQL_PORT=3306 \
+    SUITECRM_RUNTIME_MYSQL_NAME=suitecrm \
+    SUITECRM_RUNTIME_MYSQL_USER=suitecrm \
+    SUITECRM_RUNTIME_MYSQL_SSL_ENABLED=true \
+    SUITECRM_RUNTIME_MYSQL_SSL_VERIFY=true \
     SUITECRM_LOG_LEVEL=warning \
     TZ=UTC \
   --secrets \
     database-password='<YOUR_DB_PASSWORD>' \
   --secret-env-vars \
-    DATABASE_PASSWORD=database-password
+    SUITECRM_RUNTIME_MYSQL_PASSWORD=database-password
 ```
 
 ---
@@ -201,19 +201,19 @@ properties:
           cpu: 1
           memory: 2Gi
         env:
-          - name: DATABASE_HOST
+          - name: SUITECRM_RUNTIME_MYSQL_HOST
             value: mysql-suitecrm.mysql.database.azure.com
-          - name: DATABASE_PORT
+          - name: SUITECRM_RUNTIME_MYSQL_PORT
             value: "3306"
-          - name: DATABASE_NAME
+          - name: SUITECRM_RUNTIME_MYSQL_NAME
             value: suitecrm
-          - name: DATABASE_USER
+          - name: SUITECRM_RUNTIME_MYSQL_USER
             value: suitecrm
-          - name: DATABASE_PASSWORD
+          - name: SUITECRM_RUNTIME_MYSQL_PASSWORD
             secretRef: database-password
-          - name: DATABASE_SSL_ENABLED
+          - name: SUITECRM_RUNTIME_MYSQL_SSL_ENABLED
             value: "true"
-          - name: DATABASE_SSL_VERIFY
+          - name: SUITECRM_RUNTIME_MYSQL_SSL_VERIFY
             value: "true"
           - name: SUITECRM_SITE_URL
             value: https://suitecrm.azurecontainerapps.io
@@ -271,13 +271,13 @@ az containerapp show \
 
 | Variable | Description | Default | Azure Value |
 |----------|-------------|---------|-------------|
-| `DATABASE_HOST` | MySQL server hostname | `db` | `*.mysql.database.azure.com` |
-| `DATABASE_PORT` | MySQL port | `3306` | `3306` |
-| `DATABASE_NAME` | Database name | `suitecrm` | Your DB name |
-| `DATABASE_USER` | Database user | `suitecrm` | Your DB user |
-| `DATABASE_PASSWORD` | Database password | - | From Key Vault/Secret |
-| `DATABASE_SSL_ENABLED` | Enable SSL for MySQL | `true` | `true` |
-| `DATABASE_SSL_VERIFY` | Verify SSL certificate | `true` | `true` |
+| `SUITECRM_RUNTIME_MYSQL_HOST` | MySQL server hostname | `localhost` | `*.mysql.database.azure.com` |
+| `SUITECRM_RUNTIME_MYSQL_PORT` | MySQL port | `3306` | `3306` |
+| `SUITECRM_RUNTIME_MYSQL_NAME` | Database name | `suitecrm` | Your DB name |
+| `SUITECRM_RUNTIME_MYSQL_USER` | Database user | `suitecrm` | Your DB user |
+| `SUITECRM_RUNTIME_MYSQL_PASSWORD` | Database password | - | From Key Vault/Secret |
+| `SUITECRM_RUNTIME_MYSQL_SSL_ENABLED` | Enable SSL for MySQL | `true` | `true` |
+| `SUITECRM_RUNTIME_MYSQL_SSL_VERIFY` | Verify SSL certificate | `true` | `true` |
 | `SUITECRM_SITE_URL` | Public URL of the app | `http://localhost` | Your ACA URL |
 | `SUITECRM_LOG_LEVEL` | Log verbosity | `warning` | `warning` |
 | `SUITECRM_INSTALLER_LOCKED` | Lock installer | `false` | `true` (after setup) |

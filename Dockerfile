@@ -120,13 +120,14 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 WORKDIR /var/www/html
 
 # Environment variables with defaults (override in Azure Container Apps)
-ENV DATABASE_HOST="localhost" \
-    DATABASE_PORT="3306" \
-    DATABASE_NAME="suitecrm" \
-    DATABASE_USER="suitecrm" \
-    DATABASE_PASSWORD="" \
-    DATABASE_SSL_ENABLED="true" \
-    DATABASE_SSL_VERIFY="true" \
+# Variable names use SUITECRM_RUNTIME_MYSQL_* prefix for clarity
+ENV SUITECRM_RUNTIME_MYSQL_HOST="localhost" \
+    SUITECRM_RUNTIME_MYSQL_PORT="3306" \
+    SUITECRM_RUNTIME_MYSQL_NAME="suitecrm" \
+    SUITECRM_RUNTIME_MYSQL_USER="suitecrm" \
+    SUITECRM_RUNTIME_MYSQL_PASSWORD="" \
+    SUITECRM_RUNTIME_MYSQL_SSL_ENABLED="true" \
+    SUITECRM_RUNTIME_MYSQL_SSL_VERIFY="true" \
     SUITECRM_SITE_URL="http://localhost" \
     SUITECRM_LOG_LEVEL="warning" \
     SUITECRM_INSTALLER_LOCKED="false" \

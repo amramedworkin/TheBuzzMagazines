@@ -1,28 +1,10 @@
-![TheBuzzMagazines](./docs/images/buzz_readme_heading.png)
-
-# TheBuzzMagazines
-The Buzz advertising database
-The purpose ot this Access database is to to track advertising customers sales and communications.
-The added ZIP file contains the fronend client ACCDB, Server backend ACCDB and a text file describing the client setup.
-Setup Database
-This zip has the miscellaneous (Backend) and Advertiser DB (Client) and the setup client text file. The miscellaneous.accdb needs to be in a folder named network and have a drive letter mapped to N. 
-
-| Username | Password | Contact |
-|----------|----------|---------|
-| manager | *(contact for pwd)* | adworkin@itprotects.com |
-| buzz | *(contact for pwd)* | adworkin@itprotects.com |
-
-## Migration & Provisioning Guide
+# Migration & Provisioning Guide
 
 This document provides a comprehensive, step-by-step guide for standing up the TheBuzzMagazines SuiteCRM environment from scratch, including local development setup and full Azure deployment.
 
 **Last Updated:** January 2026
 **Target Environment:** Azure Container Apps (Serverless)
 **SuiteCRM Version:** 8.8.0
-
-![TheBuzzMagazines SuiteCRM Azure Architecture](./docs/images/buzz_architecture.png)
-
-<sub>[PlantUML source](./docs/puml/buzz_architecture.puml)</sub>
 
 ---
 
@@ -33,13 +15,14 @@ This document provides a comprehensive, step-by-step guide for standing up the T
 3. [Docker Container Build Process](#3-docker-container-build-process)
 4. [Azure Resource Provisioning](#4-azure-resource-provisioning)
 5. [Mounted File Systems](#5-mounted-file-systems)
-6. [Step-by-Step Instructions](#6-step-by-step-instructions)
-   - [6.1 Local Environment Setup](#61-local-environment-setup)
-   - [6.2 Azure Provisioning](#62-azure-provisioning)
-   - [6.3 Local Azure Files Mounting](#63-local-azure-files-mounting)
-   - [6.4 Docker Image Creation](#64-docker-image-creation)
-   - [6.5 Data Migration](#65-data-migration)
-   - [6.6 Azure Deployment](#66-azure-deployment-complete-walkthrough)
+6. [Architecture Diagram](#6-architecture-diagram)
+7. [Step-by-Step Instructions](#7-step-by-step-instructions)
+   - [7.1 Local Environment Setup](#71-local-environment-setup)
+   - [7.2 Azure Provisioning](#72-azure-provisioning)
+   - [7.3 Local Azure Files Mounting](#73-local-azure-files-mounting)
+   - [7.4 Docker Image Creation](#74-docker-image-creation)
+   - [7.5 Data Migration](#75-data-migration)
+   - [7.6 Azure Deployment](#76-azure-deployment-complete-walkthrough)
 
 ---
 
@@ -75,7 +58,7 @@ User Request
 ┌─────────────────────────┐              ┌─────────────────────────┐
 │   Azure Database for    │              │   Azure Files           │
 │   MySQL Flexible Server │              │   (SMB Shares)          │
-│   ───────────────────── │              │   ───────────────────── │
+│   ─────────────────────│              │   ─────────────────────  │
 │   • suitecrm database   │              │   • suitecrm-upload     │
 │   • SSL/TLS encrypted   │              │   • suitecrm-custom     │
 │   • Auto-backups        │              │   • suitecrm-cache      │
@@ -539,9 +522,66 @@ The `azure-mount.sh` script adds entries to `/etc/fstab` for automatic mounting:
 
 ---
 
-## 6. Step-by-Step Instructions
+## 6. Architecture Diagram
 
-### 6.1 Local Environment Setup
+### Complete Azure Architecture
+
+![TheBuzzMagazines SuiteCRM Azure Architecture](./docs/images/buzz_architecture.png)
+
+*PlantUML source: [docs/puml/buzz_architecture.puml](./docs/puml/buzz_architecture.puml)*
+
+### Rendered Diagram (ASCII Approximation)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Azure Resource Group: rg-buzzmag-suitecrm                │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │              Container Apps Environment: buzzmag-cae                    ││
+│  │  ┌───────────────────────────────────────────────────────────────────┐  ││
+│  │  │                   Container App: suitecrm                         │  ││
+│  │  │  ┌─────────────┐   ┌─────────────┐   ┌─────────────────────────┐  │  ││
+│  │  │  │   Apache    │──▶│   PHP 8.3   │──▶│   SuiteCRM 8.8.0        │  │  ││
+│  │  │  │  Port 443   │   │             │   │                         │  │  ││
+│  │  │  └─────────────┘   └─────────────┘   └───────────┬─────────────┘  │  ││
+│  │  │                                                   │               │  ││
+│  │  └───────────────────────────────────────────────────┼───────────────┘  ││
+│  └──────────────────────────────────────────────────────┼──────────────────┘│
+│                           │                             │                   │
+│                           │ MySQL (SSL)                 │ Volume Mounts     │
+│                           ▼                             ▼                   │
+│  ┌─────────────────────────────────────┐  ┌────────────────────────────────┐│
+│  │   Azure Database for MySQL          │  │    Azure Storage Account       ││
+│  │   buzzmag-mysql                     │  │    buzzmagstorage              ││
+│  │   ─────────────────────────────     │  │    ─────────────────────────── ││
+│  │   • suitecrm database               │  │    • suitecrm-upload (share)   ││
+│  │   • Standard_B1ms                   │  │    • suitecrm-custom (share)   ││
+│  │   • SSL/TLS enforced                │  │    • suitecrm-cache (share)    ││
+│  │   • Auto-backup enabled             │  │    • Standard LRS              ││
+│  └─────────────────────────────────────┘  └────────────────────────────────┘│
+│                                                                             │
+│  ┌─────────────────────────────────────┐                                    │
+│  │   Azure Container Registry          │                                    │
+│  │   buzzmagacr.azurecr.io             │                                    │
+│  │   ─────────────────────────────     │                                    │
+│  │   • suitecrm:8.8.0 image            │                                    │
+│  │   • Basic SKU                       │                                    │
+│  └─────────────────────────────────────┘                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+         ▲                    ▲
+         │ HTTPS              │ HTTPS
+         │                    │
+     ┌───┴───┐            ┌───┴───┐
+     │ Users │            │ Admin │
+     └───────┘            └───────┘
+```
+
+---
+
+## 7. Step-by-Step Instructions
+
+### 7.1 Local Environment Setup
 
 #### Prerequisites
 
@@ -611,7 +651,7 @@ cd TheBuzzMagazines
 
 ---
 
-### 6.2 Azure Provisioning
+### 7.2 Azure Provisioning
 
 #### Login to Azure
 
@@ -680,7 +720,7 @@ cat logs/latest_azure-provision_*.log
 
 ---
 
-### 6.3 Local Azure Files Mounting
+### 7.3 Local Azure Files Mounting
 
 #### Prerequisites
 
@@ -747,7 +787,7 @@ rm /mnt/azure/suitecrm/upload/test.txt
 
 ---
 
-### 6.4 Docker Image Creation
+### 7.4 Docker Image Creation
 
 #### Build the Image
 
@@ -799,7 +839,7 @@ docker compose down
 
 ---
 
-### 6.5 Data Migration
+### 7.5 Data Migration
 
 Data migration from the legacy Advertisers MySQL database to SuiteCRM is covered in a separate document:
 
@@ -828,7 +868,7 @@ Data migration from the legacy Advertisers MySQL database to SuiteCRM is covered
 
 ---
 
-### 6.6 Azure Deployment (Complete Walkthrough)
+### 7.6 Azure Deployment (Complete Walkthrough)
 
 This section provides exhaustive, click-by-click instructions for deploying to Azure Container Apps.
 
