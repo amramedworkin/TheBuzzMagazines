@@ -610,7 +610,8 @@ docker compose exec web php -r "new mysqli('host', 'user', 'pass', 'db');"
 |----------|-------------|
 | [ENV_GUIDE.md](./docs/ENV_GUIDE.md) | Environment variable reference |
 | [SCRIPTS_GUIDE.md](./docs/SCRIPTS_GUIDE.md) | Script documentation |
-| [MIGRATION_PROVISIONING_GUIDE.md](./docs/MIGRATION_PROVISIONING_GUIDE.md) | Detailed deployment guide |
+| [MIGRATION_PROVISIONING_GUIDE.md](./docs/MIGRATION_PROVISIONING_GUIDE.md) | Detailed Azure provision/deploy guide |
+| [SUITECRM_DOCKER_GUIDE.md](./docs/SUITECRM_DOCKER_GUIDE.md) | Detailed Docker provision/deploy guide |
 
 ---
 
