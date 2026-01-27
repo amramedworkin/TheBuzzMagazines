@@ -1,5 +1,6 @@
 # Environment files (contain credentials)
 .env
+.azure-secrets
 
 # Scratch files and folders
 scratch/
@@ -11,6 +12,8 @@ scratch*
 # Database backups (can be large)
 databases/backups/*.sql
 databases/backups/*.sql.gz
+database/backups/*.sql
+database/backups/*.sql.gz
 
 # Python virtual environment
 mdb_env/

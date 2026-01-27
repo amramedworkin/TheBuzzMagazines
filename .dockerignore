@@ -1,0 +1,58 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Node.js
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Logs
+*.log
+logs/
+var/log/
+
+# IDE and Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+.docker/
+
+# Environment files (use docker-compose env vars instead)
+.env
+.env.local
+.env.*.local
+
+# Documentation
+docs/
+*.md
+LICENSE
+
+# Setup and scripts (not needed in container)
+setup/
+scripts/
+branding/
+
+# Database files
+databases/
+*.sql
+
+# Temporary files
+tmp/
+temp/
+cache/
+
+# Test files
+tests/
+test/
+*.test.*
