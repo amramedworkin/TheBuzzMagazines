@@ -52,6 +52,8 @@ This project migrates the legacy data and workflows to **SuiteCRM 8.8**, a moder
 | [8. Data Migration](#8-data-migration) | Legacy to SuiteCRM migration |
 | [9. Security](#9-security) | Authentication and encryption |
 | [10. Troubleshooting](#10-troubleshooting) | Common issues and solutions |
+| [Documentation](#documentation) | Links to detailed guides |
+| [Appendix A: Legacy Screenshots](#appendix-a-legacy-system-screenshots) | Complete visual tour of original system (36 images) |
 
 ---
 
@@ -352,6 +354,44 @@ The container is configured entirely through environment variables:
 | `SUITECRM_LOG_LEVEL` | No | Logging level (default: warning) |
 | `TZ` | No | Timezone (default: UTC) |
 
+### Template-Driven Configuration
+
+Docker configuration is fully driven by `.env` using template generation:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    .env (Single Source of Truth)                    │
+│  DOCKER_PHP_BASE_IMAGE=php:8.3-apache                               │
+│  DOCKER_SUITECRM_VERSION=8.8.0                                      │
+│  DOCKER_PHP_MEMORY_LIMIT=512M                                       │
+│  DOCKER_CONTAINER_NAME=suitecrm-web                                 │
+│  ...                                                                │
+└─────────────────────────────────────────────────────────────────────┘
+                                 │
+                                 ▼  docker-generate.sh (envsubst)
+┌────────────────────────────────┴────────────────────────────────────┐
+│                                                                     │
+│  Dockerfile.template          docker-compose.template.yml           │
+│  ────────────────────         ───────────────────────────           │
+│  FROM ${DOCKER_PHP_...}       container_name: ${DOCKER_...}         │
+│  memory_limit = ${...}        ports: "${DOCKER_HOST_PORT}:..."      │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+                                 │
+                                 ▼  Generated (git-ignored)
+┌────────────────────────────────┴────────────────────────────────────┐
+│  Dockerfile                   docker-compose.yml                    │
+│  ──────────                   ──────────────────                    │
+│  Ready for docker build       Ready for docker compose up           │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Key benefits:**
+- Change PHP version, memory limits, or SuiteCRM version in ONE place (`.env`)
+- No hardcoded values in Docker files
+- Templates are committed; generated files are git-ignored
+- Full flexibility to parameterize any value
+
 ### Docker Build Process
 
 The image is built in stages for optimal caching:
@@ -392,12 +432,46 @@ scripts/
 ├── azure-validate-resources.sh    # Check resource status
 ├── azure-mount-fileshare-to-local.sh  # Mount Azure Files locally
 ├── azure-test-capabilities.sh     # Test Azure permissions
+├── docker-generate.sh             # Generate Dockerfile from templates
 ├── docker-build.sh                # Build Docker image
 ├── docker-start.sh                # Start container
 ├── docker-stop.sh                 # Stop container
 ├── docker-validate.sh             # Check Docker status
 └── docker-teardown.sh             # Remove Docker artifacts
 ```
+
+### Local Development Workflow Order
+
+**Critical:** Azure Files must be mounted BEFORE starting the container. The workflow order is:
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│ docker-generate │     │  docker-build   │     │   azure-mount   │     │  docker-start   │
+│ ───────────────-│────▶│ ─────────────── │────▶│ ─────────────── │────▶│ ─────────────── │
+│ Creates files   │     │ Builds image    │     │ Requires sudo   │     │ Requires mount  │
+│ from templates  │     │ from generated  │     │ + Azure ready   │     │ for volumes     │
+└─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+| Step | Script | Mount Required? | Notes |
+|------|--------|-----------------|-------|
+| 1 | `docker-generate` | No | Creates Dockerfile and docker-compose.yml from templates |
+| 2 | `docker-build` | No | Builds the image (calls generate automatically) |
+| 3 | `azure-mount` | N/A | Creates the mount points (requires sudo) |
+| 4 | `docker-start` | **Yes** | Warns if mounts missing, allows override |
+| 5 | `docker-validate` | No | Reports mount state in status |
+| 6 | `docker-stop` | No | Just stops container |
+
+**Why mounts matter:** The `docker-compose.yml` maps Azure Files to container paths:
+
+```yaml
+volumes:
+  - /mnt/azure/suitecrm/upload:/var/www/html/public/legacy/upload
+  - /mnt/azure/suitecrm/custom:/var/www/html/public/legacy/custom
+  - /mnt/azure/suitecrm/cache:/var/www/html/public/legacy/cache
+```
+
+Without mounts, Docker creates empty local directories and **data will not persist** to Azure storage. The `docker-start.sh` script validates mounts and warns you if they're missing.
 
 ### Command Reference
 
@@ -611,7 +685,182 @@ docker compose exec web php -r "new mysqli('host', 'user', 'pass', 'db');"
 | [ENV_GUIDE.md](./docs/ENV_GUIDE.md) | Environment variable reference |
 | [SCRIPTS_GUIDE.md](./docs/SCRIPTS_GUIDE.md) | Script documentation |
 | [MIGRATION_PROVISIONING_GUIDE.md](./docs/MIGRATION_PROVISIONING_GUIDE.md) | Detailed Azure provision/deploy guide |
-| [SUITECRM_DOCKER_GUIDE.md](./docs/SUITECRM_DOCKER_GUIDE.md) | Detailed Docker provision/deploy guide |
+| [DOCKER_GUIDE.md](./docs/DOCKER_GUIDE.md) | Docker build & deployment with .env-driven template generation |
+
+---
+
+## Appendix A: Legacy System Screenshots
+
+This appendix provides a complete visual tour of the original Microsoft Access database application. Images are organized by functional module.
+
+### A.1 Main Menu
+
+The application entry point providing access to all modules.
+
+| Image | Description |
+|-------|-------------|
+| ![Main Menu](./docs/images/legacy/01-00-main_menu.png) | **Main Menu** - Application entry point with navigation to all modules |
+
+---
+
+### A.2 Advertiser & Prospects Management
+
+The core module for managing companies, contacts, and sales pipeline.
+
+| # | Image | Description |
+|---|-------|-------------|
+| **Main Screen** | | |
+| 2.0 | [View](./docs/images/legacy/02-00-advertiser_and_prospects_list.png) | Advertiser and Prospects List - Main listing of all companies |
+| **Maintenance Form** | | |
+| 2.a | [View](./docs/images/legacy/02-a-advertiser_maintenance_form.png) | Advertiser Maintenance Form - Detailed company record |
+| 2.a.1 | [View](./docs/images/legacy/02-a-01-export_all_contacts.png) | Export All Contacts dialog |
+| 2.a.2 | [View](./docs/images/legacy/02-a-02-export_primary_contacts.png) | Export Primary Contacts dialog |
+| 2.a.3 | [View](./docs/images/legacy/02-a-03-add_company_form.png) | Add Company Form |
+| 2.a.4 | [View](./docs/images/legacy/02-a-04-edit_company_form.png) | Edit Company Form |
+| **Dropdown Fields** | | |
+| 2.a.5 | [View](./docs/images/legacy/02-a-05-primary_dropdown.png) | Primary Contact dropdown |
+| 2.a.6 | [View](./docs/images/legacy/02-a-06-category_dropdown.png) | Category dropdown |
+| 2.a.7 | [View](./docs/images/legacy/02-a-07-temperature_dropdown.png) | Temperature (lead status) dropdown |
+| 2.a.8 | [View](./docs/images/legacy/02-a-08-unnamed_field_next_to_website_dropdown_which_is_company_type.png) | Company Type dropdown |
+| 2.a.9 | [View](./docs/images/legacy/02-a-09-contact_level_dropdown.png) | Contact Level dropdown |
+| 2.a.10 | [View](./docs/images/legacy/02-a-10-contract_type_dropdown.png) | Contract Type dropdown |
+| 2.a.11 | [View](./docs/images/legacy/02-a-11-comment_ae_textselector_list.png) | Comment AE Text Selector |
+| **Search/Filter Controls** | | |
+| 2.b | [View](./docs/images/legacy/02-b-type_advertiser_name_textselector_list.png) | Type Advertiser Name search |
+| 2.c | [View](./docs/images/legacy/02-c-select_ae_dropdown.png) | Select Account Executive filter |
+| 2.d | [View](./docs/images/legacy/02-d-product_categories_dropdown.png) | Product Categories filter |
+| 2.e | [View](./docs/images/legacy/02-e-business_type_dropdown.png) | Business Type filter |
+
+---
+
+### A.3 Chronological Comments
+
+Communication history and notes tracking.
+
+| # | Image | Description |
+|---|-------|-------------|
+| **Main Screen** | | |
+| 3.0 | [View](./docs/images/legacy/03-00-chronological_comments.png) | Chronological Comments - Communication history listing |
+| **Controls** | | |
+| 3.a | [View](./docs/images/legacy/03-a-type_advertiser_name_textselector_list.png) | Type Advertiser Name search |
+| 3.b | [View](./docs/images/legacy/03-b-select_ae_dropdown.png) | Select Account Executive filter |
+| 3.c | [View](./docs/images/legacy/03-c-product_categories_dropdown.png) | Product Categories filter |
+| 3.d | [View](./docs/images/legacy/03-d-export_data_failed_error.png) | Export Data Error dialog |
+
+---
+
+### A.4 Account Executive Maintenance
+
+Sales representative management.
+
+| # | Image | Description |
+|---|-------|-------------|
+| 4.0 | [View](./docs/images/legacy/04-00-account_executive_maintenance_list.png) | Account Executive Maintenance - List of sales representatives |
+
+---
+
+### A.5 Business Type Maintenance
+
+Company classification categories.
+
+| # | Image | Description |
+|---|-------|-------------|
+| 5.0 | [View](./docs/images/legacy/05-00-business_type_maintenance_list.png) | Business Type Maintenance - Industry/business categories |
+
+---
+
+### A.6 Database Reports
+
+Report generation dashboard and output.
+
+| # | Image | Description |
+|---|-------|-------------|
+| **Main Screen** | | |
+| 6.0 | [View](./docs/images/legacy/06-00-run_database_report_dashboard.png) | Run Database Report Dashboard - Report selection interface |
+| **Report Options & Output** | | |
+| 6.a | [View](./docs/images/legacy/06-a-all_product_categories_notification.png) | All Product Categories notification |
+| 6.b | [View](./docs/images/legacy/06-b-one_account_executive_dropdown.png) | One Account Executive dropdown selector |
+| 6.c | [View](./docs/images/legacy/06-c-all_product_categories_report.png) | All Product Categories Report output |
+
+---
+
+### A.7 Security / User Management
+
+Application access control.
+
+| # | Image | Description |
+|---|-------|-------------|
+| 7.0 | [View](./docs/images/legacy/07-00-buzz_security_list.png) | Buzz Security List - User accounts and permissions |
+
+---
+
+### A.8 Product Categories (Max Quantity)
+
+Advertising product inventory limits.
+
+| # | Image | Description |
+|---|-------|-------------|
+| 8.0 | [View](./docs/images/legacy/08-00-product_categories_max_qty_list.png) | Product Categories Max Qty - Inventory limits by category |
+
+---
+
+### A.9 All Product Categories
+
+Complete product catalog.
+
+| # | Image | Description |
+|---|-------|-------------|
+| 9.0 | [View](./docs/images/legacy/09-00-all_product_categories_list.png) | All Product Categories - Complete product listing |
+
+---
+
+### A.10 Contact Levels
+
+Contact hierarchy/importance classification.
+
+| # | Image | Description |
+|---|-------|-------------|
+| 10.0 | [View](./docs/images/legacy/10-00-contact_levels_list.png) | Contact Levels - Decision maker hierarchy |
+
+---
+
+### A.11 Contact Prefix
+
+Salutation prefixes (Mr., Mrs., Dr., etc.).
+
+| # | Image | Description |
+|---|-------|-------------|
+| 11.0 | [View](./docs/images/legacy/11-00-contact_prefix.png) | Contact Prefix - Name salutations |
+
+---
+
+### A.12 Contact Suffix
+
+Name suffixes (Jr., Sr., III, etc.).
+
+| # | Image | Description |
+|---|-------|-------------|
+| 12.0 | [View](./docs/images/legacy/12-00-contact_suffix.png) | Contact Suffix - Name suffixes |
+
+---
+
+### Legacy System Image Summary
+
+| Module | Main Screen | Sub-Images | Total |
+|--------|-------------|------------|-------|
+| Main Menu | 1 | 0 | 1 |
+| Advertiser & Prospects | 1 | 17 | 18 |
+| Chronological Comments | 1 | 4 | 5 |
+| Account Executive Maintenance | 1 | 0 | 1 |
+| Business Type Maintenance | 1 | 0 | 1 |
+| Database Reports | 1 | 3 | 4 |
+| Security | 1 | 0 | 1 |
+| Product Categories Max Qty | 1 | 0 | 1 |
+| All Product Categories | 1 | 0 | 1 |
+| Contact Levels | 1 | 0 | 1 |
+| Contact Prefix | 1 | 0 | 1 |
+| Contact Suffix | 1 | 0 | 1 |
+| **Total** | **12** | **24** | **36** |
 
 ---
 

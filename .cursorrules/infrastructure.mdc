@@ -1,0 +1,53 @@
+---
+description: Azure infrastructure script execution rules and resource management
+globs: ["scripts/azure-*.sh", "**/*azure*", "**/*infra*"]
+---
+
+# Infrastructure Script Execution Rules
+
+## CRITICAL: Foreground Execution Mandatory
+
+**All infrastructure management scripts MUST run in the foreground.**
+
+This includes:
+- `azure-provision-infra.sh` - Create resources
+- `azure-teardown-infra.sh` - Delete resources
+- `azure-validate-resources.sh` - Validate resource existence
+- `azure-test-capabilities.sh` - Test permissions
+- `azure-mount-fileshare-to-local.sh` - Mount/unmount file shares
+- Any future migration, test, or infrastructure scripts
+
+## Why Foreground Execution is Mandatory
+
+- The entire purpose of these scripts is to manage and view activities in real-time
+- Backgrounding processes completely negates visibility and control
+- If we have to wait for Azure operations, we wait - that's expected behavior
+- Users need to see progress, errors, and success messages as they happen
+
+## Prohibited Patterns
+
+**Do NOT use:**
+- `&` to background processes
+- `--no-wait` flags in Azure CLI commands
+- `nohup` or similar backgrounding utilities
+- Any mechanism that detaches the process from the terminal
+
+## Single Source of Truth
+
+**All Azure resource names MUST come from `.env`.**
+
+- Scripts must NOT hardcode resource names
+- Scripts must NOT construct resource names from prefixes (use pre-constructed names from .env)
+- If a value is required but not in `.env`, add it to `.env` first
+- The only exception is `azure-test-capabilities.sh` which uses ephemeral test resources with timestamps
+
+## Resource Naming Pattern
+
+```bash
+# CORRECT - Read from .env
+source .env
+az mysql flexible-server show --name "${AZURE_PROVISION_MYSQL_SERVER_NAME}" ...
+
+# INCORRECT - Constructing names
+MYSQL_NAME="${AZURE_RESOURCE_PREFIX}-mysql"  # Don't do this
+```

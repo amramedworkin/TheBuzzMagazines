@@ -1,0 +1,64 @@
+---
+description: Standards for Mermaid diagrams, file storage, and documentation linking
+globs: ["**/*.md", "**/*.mdc", "docs/**/*", "README.md", "docs/mermaid/**/*.mmd"]
+---
+
+# Mermaid Architecture & Storage Standards
+
+Whenever generating or updating architectural designs, follow these strict protocols:
+
+## 1. Storage Requirement
+
+- All raw Mermaid text must be saved as individual `.mmd` files in the `docs/mermaid/` directory.
+- Use descriptive, kebab-case naming (e.g., `docs/mermaid/auth-flow-v1.mmd`).
+
+## 2. Mandatory Mermaid Diagrams
+
+- Always include a Mermaid diagram (graph TD, sequenceDiagram, etc.) for complex logic or architecture.
+- Use double quotes for labels containing special characters (e.g., `A["Service Name"]`).
+- Avoid spaces in node IDs - use camelCase or underscores.
+
+## 3. Rendering & Linking Pattern
+
+In documentation (`.md` files), display the Mermaid diagram natively using a code block:
+
+~~~markdown
+```mermaid
+graph TD
+    A["Service A"] --> B["Service B"]
+```
+
+<sub>[View Source: docs/mermaid/filename.mmd](docs/mermaid/filename.mmd)</sub>
+~~~
+
+**Crucially:** Immediately below the diagram, provide a small link to the source file using `<sub>` tags for reduced text size.
+
+## 4. Integration Flow
+
+When replacing ASCII diagrams:
+1. First extract the logic into a `.mmd` file in `docs/mermaid/`
+2. Then reference that logic in the documentation using the standard rendering block
+3. Keep both inline rendering and source file link
+
+## 5. Mermaid Syntax Rules
+
+- **No spaces in node IDs:** Use `UserService`, not `User Service`
+- **No HTML tags:** Don't use `<br/>` in labels
+- **Quote special characters:** `A -->|"O(1) lookup"| B`
+- **Quote labels with parens/colons:** `A["Process (main)"]`
+- **Avoid reserved keywords as IDs:** Don't use `end`, `subgraph`, `graph`
+- **No explicit styling:** Don't use `style A fill:#fff` - let theme handle colors
+
+## 6. File Organization
+
+```
+docs/
+├── mermaid/
+│   ├── docker-template-flow.mmd
+│   ├── azure-provision-sequence.mmd
+│   ├── env-configuration-flow.mmd
+│   └── deployment-pipeline.mmd
+├── DOCKER_GUIDE.md          # References mermaid files
+├── SCRIPTS_GUIDE.md
+└── ...
+```

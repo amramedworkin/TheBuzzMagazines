@@ -1,0 +1,56 @@
+---
+description: Shell script conventions, CLI integration, and menu system standards
+globs: ["scripts/**/*.sh", "scripts/cli.sh", "scripts/menu.sh"]
+---
+
+# Script Development Standards
+
+## Script Conventions
+
+When creating new scripts:
+
+1. **Use `#!/bin/bash`** as the shebang
+2. **Support `-y` / `--yes`** for non-interactive mode (if long-running)
+3. **Support `-h` / `--help`** for help
+4. **Call `validate-env.sh`** if using `.env` variables
+5. **Write logs to `logs/` folder** with timestamp format: `latest_<script>_YYYYMMDD_HHMMSS.log`
+6. **Use Central US timezone** (America/Chicago) for log timestamps
+7. **Use consistent logging functions**: `log_info`, `log_success`, `log_warn`, `log_error`, `log_step`
+
+## CLI Integration (cli.sh)
+
+Every script must be accessible via `scripts/cli.sh`:
+
+1. Add command to `show_help()` function
+2. Add dispatch case in `main()` function
+3. Create wrapper function if needed (e.g., `run_docker_build`)
+
+**Example:**
+```bash
+# In show_help()
+echo "  docker-build [options]    Build Docker image from templates"
+
+# In main()
+docker-build) run_docker_build "$@" ;;
+```
+
+## Menu Integration (menu.sh)
+
+Add interactive menu options:
+
+1. Add option to appropriate submenu function (e.g., `show_docker_menu`)
+2. Add handler case in corresponding handler (e.g., `handle_docker_menu`)
+3. Create interactive wrapper function if needed
+
+## When Adding a New Script
+
+- [ ] Add command to `scripts/cli.sh` (show_help, main dispatcher)
+- [ ] Add menu option to `scripts/menu.sh` (correct submenu)
+- [ ] Add documentation to `docs/SCRIPTS_GUIDE.md`
+- [ ] Follow script conventions (logging, flags, etc.)
+
+## When Modifying Existing Scripts
+
+- [ ] Update `docs/SCRIPTS_GUIDE.md` if behavior changes
+- [ ] Update `scripts/cli.sh` help if command options change
+- [ ] Update `scripts/menu.sh` if menu labels should change

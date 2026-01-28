@@ -1,0 +1,45 @@
+---
+description: Environment variable naming conventions and documentation requirements
+globs: ["**/.env*", "**/validate-env.sh", "docs/ENV_GUIDE.md"]
+---
+
+# Environment Variables Standards
+
+## Naming Conventions
+
+Use the following prefixes for environment variables:
+
+| Prefix | Purpose |
+|--------|---------|
+| `AZURE_PROVISION_MYSQL_*` | Azure MySQL server creation (infrastructure) |
+| `AZURE_RESOURCE_*` | Azure resource naming and location |
+| `AZURE_STORAGE_*` | Azure Files storage account |
+| `AZURE_ACR_*` | Azure Container Registry |
+| `AZURE_CONTAINER_*` | Azure Container Apps |
+| `DOCKER_*` | Docker build configuration (template generation) |
+| `SUITECRM_RUNTIME_MYSQL_*` | Docker container database connection |
+| `SUITECRM_*` | SuiteCRM application settings |
+| `MIGRATION_SOURCE_MYSQL_*` | Legacy database to read FROM |
+| `MIGRATION_DEST_MYSQL_*` | SuiteCRM database to write TO |
+| `BUZZ_ADVERT_MSACCESS_*` | Legacy MS Access database |
+
+## Configuration Philosophy
+
+- **Build-time variables** (`DOCKER_*`): Baked into Docker image via template generation
+- **Runtime variables** (`SUITECRM_*`): Passed to container at startup, read by entrypoint
+
+## When Adding/Modifying Environment Variables
+
+1. **Update `.env.example`** - Add the new variable with placeholder or default value
+2. **Update `scripts/validate-env.sh`** - Add validation logic for the new variable
+3. **Update `docs/ENV_GUIDE.md`** - Document the variable in the appropriate section:
+   - Add to the correct group table
+   - Include: Variable name, Required status, Description, Default, Example
+   - Update the Overview table if adding a new group prefix
+
+## Checklist
+
+- [ ] Add to `.env.example` with placeholder
+- [ ] Add to `scripts/validate-env.sh` (get_env_value, validation function)
+- [ ] Add to `docs/ENV_GUIDE.md` (correct section table)
+- [ ] Update any scripts that should use the new variable

@@ -1,0 +1,60 @@
+---
+description: Docker template generation system and container configuration standards
+globs: ["Dockerfile*", "docker-compose*", "docker-entrypoint.sh", "scripts/docker-*.sh"]
+---
+
+# Docker Template Generation Standards
+
+## Architecture Overview
+
+Docker configuration is fully driven by `.env` using template generation:
+
+```
+.env (Single Source of Truth)
+         │
+         ▼  docker-generate.sh (envsubst)
+Dockerfile.template  ──▶  Dockerfile (generated, git-ignored)
+docker-compose.template.yml  ──▶  docker-compose.yml (generated, git-ignored)
+```
+
+## File Responsibilities
+
+| File | Purpose | Committed? |
+|------|---------|------------|
+| `.env` | All configuration values | No (`.env.example` is) |
+| `Dockerfile.template` | Docker build structure with `${VAR}` placeholders | Yes |
+| `docker-compose.template.yml` | Compose structure with `${VAR}` placeholders | Yes |
+| `Dockerfile` | Generated, ready-to-build | No (git-ignored) |
+| `docker-compose.yml` | Generated, ready-to-run | No (git-ignored) |
+| `docker-entrypoint.sh` | Runtime configuration script | Yes |
+
+## Template Syntax
+
+Use standard shell variable syntax: `${VARIABLE_NAME}`
+
+**Example:**
+```dockerfile
+FROM --platform=${DOCKER_PLATFORM} ${DOCKER_PHP_BASE_IMAGE}
+ENV SUITECRM_VERSION=${DOCKER_SUITECRM_VERSION}
+```
+
+## Build-Time vs Runtime Configuration
+
+| Type | When Applied | Prefix | Examples |
+|------|--------------|--------|----------|
+| **Build-Time** | `docker build` | `DOCKER_*` | PHP version, memory limits |
+| **Runtime** | Container startup | `SUITECRM_*` | Database connection, site URL |
+
+## Generation Workflow
+
+1. **Edit `.env`** with desired configuration
+2. **Run `docker-generate.sh`** to create Dockerfile and docker-compose.yml
+3. **Run `docker-build.sh`** (calls generate automatically)
+4. **Run `docker-start.sh`** to start container
+
+## Key Rules
+
+- **Never edit generated files directly** - changes will be lost
+- **All Docker config changes go through `.env`** and templates
+- **docker-build.sh calls docker-generate.sh** automatically
+- **Templates use envsubst** for variable substitution

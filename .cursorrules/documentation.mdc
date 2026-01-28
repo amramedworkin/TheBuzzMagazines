@@ -1,0 +1,51 @@
+---
+description: Documentation update triggers and important file references
+globs: ["docs/**/*.md", "README.md", "**/*.md"]
+---
+
+# Documentation Standards
+
+## Important Files Reference
+
+| File | Purpose |
+|------|---------|
+| `.env` | Active environment configuration (git-ignored) |
+| `.env.example` | Template for .env (committed) |
+| `Dockerfile.template` | Docker build template (committed) |
+| `docker-compose.template.yml` | Docker Compose template (committed) |
+| `Dockerfile` | Generated Docker build (git-ignored) |
+| `docker-compose.yml` | Generated Docker Compose (git-ignored) |
+| `docker-entrypoint.sh` | Container startup script |
+| `scripts/validate-env.sh` | Environment validation |
+| `scripts/cli.sh` | Command-line interface |
+| `scripts/menu.sh` | Interactive menu |
+| `scripts/docker-generate.sh` | Template generation |
+| `scripts/azure-provision-infra.sh` | Azure resource creation |
+| `scripts/azure-teardown-infra.sh` | Azure resource deletion |
+| `scripts/azure-validate-resources.sh` | Azure resource validation |
+| `docs/ENV_GUIDE.md` | Environment variable documentation |
+| `docs/SCRIPTS_GUIDE.md` | Scripts documentation |
+| `docs/DOCKER_GUIDE.md` | Docker build & deployment guide |
+| `docs/MIGRATION_PROVISIONING_GUIDE.md` | Complete deployment walkthrough |
+
+## Documentation Update Triggers
+
+When making changes, ensure relevant docs are updated:
+
+| Change Type | Update These Docs |
+|-------------|-------------------|
+| Add/modify .env variable | `docs/ENV_GUIDE.md`, `.env.example` |
+| Add/modify script | `docs/SCRIPTS_GUIDE.md`, `scripts/cli.sh`, `scripts/menu.sh` |
+| Change Docker templates | `docs/DOCKER_GUIDE.md` |
+| Change Docker build process | `docs/DOCKER_GUIDE.md` |
+| Change Azure resources | `docs/MIGRATION_PROVISIONING_GUIDE.md` Section 4 |
+| Change mount configuration | `docs/MIGRATION_PROVISIONING_GUIDE.md` Section 5 |
+| Add architecture diagrams | `docs/mermaid/` (store .mmd source files) |
+
+## README.md Updates
+
+The README.md should reflect:
+- Current architecture and approach
+- Links to detailed documentation
+- Visual diagrams (use Mermaid or ASCII art consistently)
+- Updated workflow diagrams when processes change
