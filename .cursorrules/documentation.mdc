@@ -16,7 +16,7 @@ globs: ["docs/**/*.md", "README.md", "**/*.md"]
 | `Dockerfile` | Generated Docker build (git-ignored) |
 | `docker-compose.yml` | Generated Docker Compose (git-ignored) |
 | `docker-entrypoint.sh` | Container startup script |
-| `scripts/validate-env.sh` | Environment validation |
+| `scripts/env-validate.sh` | Environment validation |
 | `scripts/cli.sh` | Command-line interface |
 | `scripts/menu.sh` | Interactive menu |
 | `scripts/docker-generate.sh` | Template generation |

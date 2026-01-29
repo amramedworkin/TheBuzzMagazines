@@ -1,15 +1,46 @@
-# Dockerfile for SuiteCRM 8.8.0
+# Dockerfile for SuiteCRM
 # Target: Azure Container Apps (Serverless)
 # Self-contained, stateless, cloud-native image
-FROM --platform=linux/amd64 php:8.3-apache
+#
+# All build-time configuration is passed via ARG from docker-compose.yml,
+# which reads from .env DOCKER_* variables.
 
-LABEL maintainer="TheBuzzMagazines DevOps"
-LABEL description="SuiteCRM 8.8.0 Cloud-Native for Azure Container Apps"
+# ============================================================================
+# BUILD ARGUMENTS (from .env via docker-compose.yml)
+# ============================================================================
+# Using Bookworm variant for libc-client-dev availability (removed in Trixie)
+ARG DOCKER_PHP_BASE_IMAGE=php:8.3-apache-bookworm
+ARG DOCKER_PLATFORM=linux/amd64
 
-# SuiteCRM version
-ENV SUITECRM_VERSION=8.8.0
+# Use the base image from ARG
+FROM --platform=${DOCKER_PLATFORM} ${DOCKER_PHP_BASE_IMAGE}
+
+# Re-declare ARGs after FROM (they don't persist across FROM)
+ARG DOCKER_SUITECRM_VERSION=8.8.0
+ARG DOCKER_LABEL_MAINTAINER="TheBuzzMagazines DevOps"
+ARG DOCKER_LABEL_DESCRIPTION="SuiteCRM Cloud-Native for Azure Container Apps"
+ARG DOCKER_PHP_MEMORY_LIMIT=512M
+ARG DOCKER_PHP_UPLOAD_MAX_FILESIZE=100M
+ARG DOCKER_PHP_POST_MAX_SIZE=100M
+ARG DOCKER_PHP_MAX_EXECUTION_TIME=300
+ARG DOCKER_PHP_MAX_INPUT_TIME=300
+ARG DOCKER_PHP_MAX_INPUT_VARS=10000
+ARG DOCKER_OPCACHE_MEMORY=256
+ARG DOCKER_OPCACHE_INTERNED_STRINGS=16
+ARG DOCKER_OPCACHE_MAX_FILES=10000
+ARG DOCKER_CONTAINER_PORT=80
+ARG TZ=America/Chicago
+
+# Labels from ARG
+LABEL maintainer="${DOCKER_LABEL_MAINTAINER}"
+LABEL description="${DOCKER_LABEL_DESCRIPTION}"
+LABEL suitecrm.version="${DOCKER_SUITECRM_VERSION}"
+
+# SuiteCRM version as ENV (available at runtime)
+ENV SUITECRM_VERSION=${DOCKER_SUITECRM_VERSION}
 
 # Install system dependencies including SSL certificates for Azure MySQL
+# Using Bookworm base which has libc-client-dev (removed in Trixie)
 RUN apt-get update && apt-get install -y \
     libfreetype6-dev \
     libjpeg62-turbo-dev \
@@ -19,6 +50,7 @@ RUN apt-get update && apt-get install -y \
     libxml2-dev \
     libc-client-dev \
     libkrb5-dev \
+    libldap2-dev \
     unzip \
     wget \
     curl \
@@ -27,8 +59,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Configure and install PHP extensions
+# Note: soap and ldap are required by SuiteCRM pre-installation checks
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-configure imap --with-kerberos --with-imap-ssl \
+    && docker-php-ext-configure ldap \
     && docker-php-ext-install -j$(nproc) \
         mysqli \
         gd \
@@ -39,7 +73,9 @@ RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
         imap \
         bcmath \
         pdo \
-        pdo_mysql
+        pdo_mysql \
+        soap \
+        ldap
 
 # Enable Apache mod_rewrite and headers
 RUN a2enmod rewrite headers
@@ -53,51 +89,45 @@ RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-av
 # Configure Apache to allow .htaccess overrides
 RUN sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
 
-# Configure Apache to listen on port 80 (required for Azure Container Apps)
-RUN sed -i 's/Listen 80/Listen 0.0.0.0:80/' /etc/apache2/ports.conf
+# Configure Apache to listen on specified port (default 80, required for Azure Container Apps)
+# Update both ports.conf AND VirtualHost to use the same port
+RUN sed -i "s/Listen 80/Listen 0.0.0.0:${DOCKER_CONTAINER_PORT}/" /etc/apache2/ports.conf \
+    && sed -i "s/<VirtualHost \*:80>/<VirtualHost *:${DOCKER_CONTAINER_PORT}>/" /etc/apache2/sites-available/000-default.conf
 
 # PHP production configuration
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
-# Custom PHP settings for SuiteCRM
-RUN { \
-    echo 'memory_limit = 512M'; \
-    echo 'upload_max_filesize = 100M'; \
-    echo 'post_max_size = 100M'; \
-    echo 'max_execution_time = 300'; \
-    echo 'max_input_time = 300'; \
-    echo 'max_input_vars = 10000'; \
-    echo 'date.timezone = UTC'; \
-    echo 'session.cookie_httponly = 1'; \
-    echo 'session.cookie_secure = 1'; \
-    echo 'session.use_strict_mode = 1'; \
-    } > "$PHP_INI_DIR/conf.d/suitecrm.ini"
+# Custom PHP settings for SuiteCRM (using ARG values)
+RUN echo "memory_limit = ${DOCKER_PHP_MEMORY_LIMIT}" > "$PHP_INI_DIR/conf.d/suitecrm.ini" \
+    && echo "upload_max_filesize = ${DOCKER_PHP_UPLOAD_MAX_FILESIZE}" >> "$PHP_INI_DIR/conf.d/suitecrm.ini" \
+    && echo "post_max_size = ${DOCKER_PHP_POST_MAX_SIZE}" >> "$PHP_INI_DIR/conf.d/suitecrm.ini" \
+    && echo "max_execution_time = ${DOCKER_PHP_MAX_EXECUTION_TIME}" >> "$PHP_INI_DIR/conf.d/suitecrm.ini" \
+    && echo "max_input_time = ${DOCKER_PHP_MAX_INPUT_TIME}" >> "$PHP_INI_DIR/conf.d/suitecrm.ini" \
+    && echo "max_input_vars = ${DOCKER_PHP_MAX_INPUT_VARS}" >> "$PHP_INI_DIR/conf.d/suitecrm.ini" \
+    && echo "date.timezone = ${TZ}" >> "$PHP_INI_DIR/conf.d/suitecrm.ini" \
+    && echo "session.cookie_httponly = 1" >> "$PHP_INI_DIR/conf.d/suitecrm.ini" \
+    && echo "session.cookie_secure = 1" >> "$PHP_INI_DIR/conf.d/suitecrm.ini" \
+    && echo "session.use_strict_mode = 1" >> "$PHP_INI_DIR/conf.d/suitecrm.ini"
 
-# OPcache settings for production
-RUN { \
-    echo 'opcache.enable=1'; \
-    echo 'opcache.memory_consumption=256'; \
-    echo 'opcache.interned_strings_buffer=16'; \
-    echo 'opcache.max_accelerated_files=10000'; \
-    echo 'opcache.revalidate_freq=0'; \
-    echo 'opcache.validate_timestamps=0'; \
-    echo 'opcache.save_comments=1'; \
-    echo 'opcache.fast_shutdown=1'; \
-    } > "$PHP_INI_DIR/conf.d/opcache-recommended.ini"
+# OPcache settings for production (using ARG values)
+RUN echo "opcache.enable=1" > "$PHP_INI_DIR/conf.d/opcache-recommended.ini" \
+    && echo "opcache.memory_consumption=${DOCKER_OPCACHE_MEMORY}" >> "$PHP_INI_DIR/conf.d/opcache-recommended.ini" \
+    && echo "opcache.interned_strings_buffer=${DOCKER_OPCACHE_INTERNED_STRINGS}" >> "$PHP_INI_DIR/conf.d/opcache-recommended.ini" \
+    && echo "opcache.max_accelerated_files=${DOCKER_OPCACHE_MAX_FILES}" >> "$PHP_INI_DIR/conf.d/opcache-recommended.ini" \
+    && echo "opcache.revalidate_freq=0" >> "$PHP_INI_DIR/conf.d/opcache-recommended.ini" \
+    && echo "opcache.validate_timestamps=0" >> "$PHP_INI_DIR/conf.d/opcache-recommended.ini" \
+    && echo "opcache.save_comments=1" >> "$PHP_INI_DIR/conf.d/opcache-recommended.ini" \
+    && echo "opcache.fast_shutdown=1" >> "$PHP_INI_DIR/conf.d/opcache-recommended.ini"
 
 # mysqli SSL settings for Azure MySQL
-RUN { \
-    echo 'mysqli.default_ssl = true'; \
-    } > "$PHP_INI_DIR/conf.d/mysqli-ssl.ini"
+RUN echo "mysqli.default_ssl = true" > "$PHP_INI_DIR/conf.d/mysqli-ssl.ini"
 
 # Download and install SuiteCRM
+# Note: The SuiteCRM zip extracts directly without a wrapper directory
 WORKDIR /var/www/html
 
 RUN wget -q https://github.com/salesagility/SuiteCRM-Core/releases/download/v${SUITECRM_VERSION}/SuiteCRM-${SUITECRM_VERSION}.zip \
     && unzip -q SuiteCRM-${SUITECRM_VERSION}.zip \
-    && mv SuiteCRM-${SUITECRM_VERSION}/* . \
-    && mv SuiteCRM-${SUITECRM_VERSION}/.[!.]* . 2>/dev/null || true \
-    && rmdir SuiteCRM-${SUITECRM_VERSION} \
     && rm SuiteCRM-${SUITECRM_VERSION}.zip
 
 # Create directories for persistent data
@@ -134,8 +164,8 @@ ENV SUITECRM_RUNTIME_MYSQL_HOST="localhost" \
     TZ="UTC" \
     SKIP_DB_WAIT="false"
 
-# Expose port 80
-EXPOSE 80
+# Expose the container port
+EXPOSE ${DOCKER_CONTAINER_PORT}
 
 # Use custom entrypoint
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

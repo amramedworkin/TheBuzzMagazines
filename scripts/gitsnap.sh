@@ -50,7 +50,7 @@ else
 fi
 
 # 3. Create the unique timestamped tag
-TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+TIMESTAMP=$(TZ="America/New_York" date +%Y%m%d-%H%M%S)
 # Combine user input name with timestamp for uniqueness
 FULL_TAG_NAME="${SNAPSHOT_NAME}-$TIMESTAMP"
 

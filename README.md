@@ -258,18 +258,18 @@ The modernization follows cloud-native best practices:
 
 ### Resource Organization
 
-All Azure resources are organized within a single resource group:
+All Azure resources are organized within a single resource group, using `GLOBAL_PREFIX` for consistent naming:
 
 ```
-buzz-rg (Resource Group)
-├── buzz-mysql (MySQL Flexible Server)
+${GLOBAL_PREFIX}-rg (Resource Group)              # e.g., buzzmag-rg
+├── ${GLOBAL_PREFIX}-mysql (MySQL Flexible Server)
 │   └── suitecrm (Database)
-├── buzzmagstorage (Storage Account)
+├── ${GLOBAL_PREFIX}storage (Storage Account)    # e.g., buzzmagstorage
 │   ├── suitecrm-upload (File Share)
 │   ├── suitecrm-custom (File Share)
 │   └── suitecrm-cache (File Share)
-├── buzzacr (Container Registry)
-└── buzz-cae (Container Apps Environment)
+├── ${GLOBAL_PREFIX}acr (Container Registry)     # e.g., buzzmagacr
+└── ${GLOBAL_PREFIX}-cae (Container Apps Environment)
     └── suitecrm (Container App)
 ```
 
@@ -340,7 +340,24 @@ buzz-rg (Resource Group)
 
 ### Environment Variables
 
-The container is configured entirely through environment variables:
+The container is configured through environment variables with a **global prefix and password** system for consistency:
+
+**Global Configuration (Single Source of Truth):**
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GLOBAL_PREFIX` | Yes | Naming prefix for all resources (e.g., `buzzmag`) |
+| `GLOBAL_PASSWORD` | Yes | Default password for development (override for production) |
+
+**Derived Variables (inherit from globals):**
+
+| Variable | Inherits From | Description |
+|----------|---------------|-------------|
+| `AZURE_RESOURCE_PREFIX` | `${GLOBAL_PREFIX}` | Azure resource naming |
+| `DOCKER_PREFIX` | `${GLOBAL_PREFIX}` | Docker container/image naming |
+| `SUITECRM_PASSWORD` | `${GLOBAL_PASSWORD}` | SuiteCRM DB, admin, migration password |
+
+**Runtime Configuration:**
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -348,23 +365,27 @@ The container is configured entirely through environment variables:
 | `SUITECRM_RUNTIME_MYSQL_PORT` | No | MySQL port (default: 3306) |
 | `SUITECRM_RUNTIME_MYSQL_NAME` | Yes | Database name |
 | `SUITECRM_RUNTIME_MYSQL_USER` | Yes | Database username |
-| `SUITECRM_RUNTIME_MYSQL_PASSWORD` | Yes | Database password |
+| `SUITECRM_RUNTIME_MYSQL_PASSWORD` | Yes | Database password (uses `${SUITECRM_PASSWORD}`) |
 | `SUITECRM_RUNTIME_MYSQL_SSL_ENABLED` | No | Enable SSL (default: true) |
 | `SUITECRM_SITE_URL` | Yes | Public URL for SuiteCRM |
 | `SUITECRM_LOG_LEVEL` | No | Logging level (default: warning) |
-| `TZ` | No | Timezone (default: UTC) |
+| `TZ` | No | Application timezone (default: America/Chicago) |
+| `LOGGING_TZ` | No | Script logging timezone (default: America/New_York) |
 
 ### Template-Driven Configuration
 
-Docker configuration is fully driven by `.env` using template generation:
+Docker configuration is fully driven by `.env` using template generation with **global prefix support**:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    .env (Single Source of Truth)                    │
+│  GLOBAL_PREFIX=buzzmag                                              │
+│  GLOBAL_PASSWORD=q2w3e4R%                                           │
+│  DOCKER_PREFIX=${GLOBAL_PREFIX}                                     │
 │  DOCKER_PHP_BASE_IMAGE=php:8.3-apache                               │
 │  DOCKER_SUITECRM_VERSION=8.8.0                                      │
 │  DOCKER_PHP_MEMORY_LIMIT=512M                                       │
-│  DOCKER_CONTAINER_NAME=suitecrm-web                                 │
+│  DOCKER_CONTAINER_NAME=${DOCKER_PREFIX}-suitecrm-web                │
 │  ...                                                                │
 └─────────────────────────────────────────────────────────────────────┘
                                  │
@@ -426,7 +447,7 @@ All operations are automated through scripts in the `scripts/` directory:
 scripts/
 ├── cli.sh                         # Command-line interface
 ├── menu.sh                        # Interactive menu
-├── validate-env.sh                # Environment validation
+├── env-validate.sh                # Environment validation
 ├── azure-provision-infra.sh       # Create Azure resources
 ├── azure-teardown-infra.sh        # Delete Azure resources
 ├── azure-validate-resources.sh    # Check resource status

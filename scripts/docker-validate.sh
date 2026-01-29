@@ -19,18 +19,12 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="${PROJECT_ROOT}/.env"
 LOGS_DIR="${PROJECT_ROOT}/logs"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-CYAN='\033[1;36m'
-BOLD='\033[1m'
-NC='\033[0m'
+# Source common utilities (colors, logging, etc.)
+source "$SCRIPT_DIR/lib/common.sh"
 
-# Container/image names
-CONTAINER_NAME="suitecrm-web"
-NETWORK_NAME="thebuzzmagazines_suitecrm-network"
+# Container/image/network names - will be set from .env
+CONTAINER_NAME=""
+NETWORK_NAME=""
 
 # Track results
 declare -a COMPONENT_NAMES
@@ -39,72 +33,16 @@ declare -a COMPONENT_STATUS
 declare -a COMPONENT_DETAILS
 
 # ============================================================================
-# LOGGING SETUP
-# ============================================================================
-
-setup_logging() {
-    mkdir -p "$LOGS_DIR"
-    local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y%m%d_%H%M%S")
-    LOG_FILE="${LOGS_DIR}/latest_${SCRIPT_NAME}_${timestamp}.log"
-    
-    # Strip "latest_" prefix from previous logs
-    for old_log in "${LOGS_DIR}"/latest_${SCRIPT_NAME}_*.log; do
-        if [[ -f "$old_log" && "$old_log" != "$LOG_FILE" ]]; then
-            local new_name="${old_log/latest_/}"
-            mv "$old_log" "$new_name" 2>/dev/null || true
-        fi
-    done
-    
-    touch "$LOG_FILE"
-    {
-        echo "============================================================================"
-        echo "Docker Validation Log - $(TZ='America/New_York' date)"
-        echo "Timezone: America/New_York (Eastern US)"
-        echo "============================================================================"
-        echo ""
-    } >> "$LOG_FILE"
-}
-
-log() {
-    local level="$1"
-    local message="$2"
-    local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y-%m-%d %H:%M:%S %Z")
-    echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
-    
-    case "$level" in
-        INFO)    echo -e "${BLUE}[INFO]${NC} $message" ;;
-        SUCCESS) echo -e "${GREEN}[OK]${NC} $message" ;;
-        WARN)    echo -e "${YELLOW}[WARN]${NC} $message" ;;
-        ERROR)   echo -e "${RED}[FAIL]${NC} $message" ;;
-        CHECK)   echo -e "${CYAN}[CHECK]${NC} $message" ;;
-        *)       echo "$message" ;;
-    esac
-}
-
-log_info() { log "INFO" "$1"; }
-log_ok() { log "SUCCESS" "$1"; }
-log_warn() { log "WARN" "$1"; }
-log_fail() { log "ERROR" "$1"; }
-log_check() { log "CHECK" "$1"; }
-
-# ============================================================================
 # LOAD ENVIRONMENT
 # ============================================================================
 
 load_env() {
-    if [[ -f "$ENV_FILE" ]]; then
-        set -a
-        source "$ENV_FILE"
-        set +a
-        
-        # Expand nested variables
-        eval "AZURE_FILES_MOUNT_BASE=$AZURE_FILES_MOUNT_BASE"
-    fi
+    load_env_common
     
-    # Set default if not defined
+    # Set defaults if not defined
     AZURE_FILES_MOUNT_BASE="${AZURE_FILES_MOUNT_BASE:-/mnt/azure/suitecrm}"
+    CONTAINER_NAME="${DOCKER_CONTAINER_NAME:-suitecrm-web}"
+    NETWORK_NAME="${DOCKER_NETWORK_NAME:-suitecrm-network}"
 }
 
 # ============================================================================
@@ -193,7 +131,8 @@ check_docker_image() {
     image_name=$(docker compose config --images 2>/dev/null | head -1)
     
     if [[ -z "$image_name" ]]; then
-        image_name="thebuzzmagazines-web"
+        # Fallback to DOCKER_IMAGE_NAME from env or default
+        image_name="${DOCKER_IMAGE_NAME:-suitecrm}"
     fi
     
     # Check if image exists
@@ -288,8 +227,10 @@ check_container_health() {
 check_volumes() {
     log_check "Docker Volumes"
     
+    # Filter volumes by DOCKER_PREFIX or project name
+    local volume_filter="${DOCKER_PREFIX:-suitecrm}"
     local volumes
-    volumes=$(docker volume ls --filter "name=thebuzzmagazines" --format "{{.Name}}" 2>/dev/null)
+    volumes=$(docker volume ls --filter "name=${volume_filter}" --format "{{.Name}}" 2>/dev/null)
     
     if [[ -n "$volumes" ]]; then
         local count
@@ -301,7 +242,7 @@ check_volumes() {
         return 0
     else
         log_info "No project volumes found"
-        record_result "thebuzzmagazines_*" "Volume" "NONE" "No volumes created"
+        record_result "${volume_filter}_*" "Volume" "NONE" "No volumes created"
         return 0
     fi
 }
@@ -332,7 +273,7 @@ check_mounts() {
     log_check "Azure Files Mounts"
     
     local mount_base="$AZURE_FILES_MOUNT_BASE"
-    local mounts=("upload" "custom" "cache")
+    local mounts=("${AZURE_FILES_SHARE_UPLOAD}" "${AZURE_FILES_SHARE_CUSTOM}" "${AZURE_FILES_SHARE_CACHE}")
     local mounted_count=0
     
     for mount in "${mounts[@]}"; do
@@ -404,16 +345,6 @@ output_summary() {
         local type="${COMPONENT_TYPES[$i]}"
         local status="${COMPONENT_STATUS[$i]}"
         local details="${COMPONENT_DETAILS[$i]}"
-        
-        # Truncate long names
-        if [[ ${#name} -gt $name_width ]]; then
-            name="${name:0:$((name_width-3))}..."
-        fi
-        
-        # Truncate long details
-        if [[ ${#details} -gt $detail_width ]]; then
-            details="${details:0:$((detail_width-3))}..."
-        fi
         
         # Color the status
         local status_colored

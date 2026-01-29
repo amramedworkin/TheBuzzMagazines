@@ -20,14 +20,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="${PROJECT_ROOT}/.env"
 LOGS_DIR="${PROJECT_ROOT}/logs"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-CYAN='\033[1;36m'
-BOLD='\033[1m'
-NC='\033[0m'
+# Source common utilities (colors, logging, etc.)
+source "$SCRIPT_DIR/lib/common.sh"
 
 # Track results for summary
 declare -a RESOURCE_NAMES
@@ -42,7 +36,7 @@ declare -a RESOURCE_EXISTS
 setup_logging() {
     mkdir -p "$LOGS_DIR"
     local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y%m%d_%H%M%S")
+    timestamp=$(TZ="${LOGGING_TZ:-America/New_York}" date +"%Y%m%d_%H%M%S")
     LOG_FILE="${LOGS_DIR}/latest_${SCRIPT_NAME}_${timestamp}.log"
     
     # Strip "latest_" prefix from previous logs
@@ -68,7 +62,7 @@ log() {
     local level="$1"
     local message="$2"
     local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y-%m-%d %H:%M:%S %Z")
+    timestamp=$(TZ="${LOGGING_TZ:-America/New_York}" date +"%Y-%m-%d %H:%M:%S %Z")
     echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
     
     case "$level" in
@@ -131,20 +125,12 @@ load_env() {
         exit 1
     fi
 
-    # Source .env file
-    set -a
-    source "$ENV_FILE"
-    set +a
-
-    # Expand nested variables from .env (they use ${AZURE_RESOURCE_PREFIX})
-    eval "AZURE_RESOURCE_GROUP=$AZURE_RESOURCE_GROUP"
-    eval "AZURE_PROVISION_MYSQL_SERVER_NAME=$AZURE_PROVISION_MYSQL_SERVER_NAME"
-    eval "AZURE_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME"
-    eval "AZURE_ACR_NAME=$AZURE_ACR_NAME"
-    eval "AZURE_CONTAINER_APP_ENV=$AZURE_CONTAINER_APP_ENV"
+    # Use common environment loading (handles all variable expansion)
+    load_env_common
     
     echo "" >> "$LOG_FILE"
     echo "Configuration loaded:" >> "$LOG_FILE"
+    echo "  GLOBAL_PREFIX: $GLOBAL_PREFIX" >> "$LOG_FILE"
     echo "  AZURE_SUBSCRIPTION_ID: $AZURE_SUBSCRIPTION_ID" >> "$LOG_FILE"
     echo "  AZURE_LOCATION: $AZURE_LOCATION" >> "$LOG_FILE"
     echo "  AZURE_RESOURCE_GROUP: $AZURE_RESOURCE_GROUP" >> "$LOG_FILE"
@@ -152,6 +138,7 @@ load_env() {
     echo "  AZURE_STORAGE_ACCOUNT_NAME: $AZURE_STORAGE_ACCOUNT_NAME" >> "$LOG_FILE"
     echo "  AZURE_ACR_NAME: $AZURE_ACR_NAME" >> "$LOG_FILE"
     echo "  SUITECRM_RUNTIME_MYSQL_NAME: $SUITECRM_RUNTIME_MYSQL_NAME" >> "$LOG_FILE"
+    echo "  AZURE_FILES_SHARE_PREFIX: $AZURE_FILES_SHARE_PREFIX" >> "$LOG_FILE"
     echo "" >> "$LOG_FILE"
     
     log_info "Environment loaded successfully"
@@ -286,7 +273,7 @@ check_storage_account() {
 
 check_file_shares() {
     local storage_exists="$1"
-    local shares=("suitecrm-upload" "suitecrm-custom" "suitecrm-cache")
+    local shares=("${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_UPLOAD}" "${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_CUSTOM}" "${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_CACHE}")
     local descriptions=(
         "User uploaded files (documents, images)"
         "Custom modules and extensions"
@@ -324,10 +311,15 @@ check_file_shares() {
         
         log_check "File Share: $share"
         
-        if az storage share show \
+        # Use 'az storage share exists' instead of 'az storage share show'
+        local share_exists
+        share_exists=$(az storage share exists \
             --name "$share" \
             --account-name "$AZURE_STORAGE_ACCOUNT_NAME" \
-            --account-key "$storage_key" &>/dev/null; then
+            --account-key "$storage_key" \
+            --query "exists" -o tsv 2>/dev/null)
+        
+        if [[ "$share_exists" == "true" ]]; then
             log_exists "File Share '$share' exists"
             record_result "$share" "File Share" "$desc" "YES"
         else

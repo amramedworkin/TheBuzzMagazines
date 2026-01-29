@@ -343,18 +343,29 @@ $sugar_config['site_url'] = 'https://yoursite.com';
 
 ### 3.3 Environment Variables Used by Container
 
+**Global Configuration (Single Source of Truth):**
+
+| Variable | Purpose | Required |
+|----------|---------|----------|
+| `GLOBAL_PREFIX` | Naming prefix for all resources | Yes |
+| `GLOBAL_PASSWORD` | Default password for development | Yes |
+| `DOCKER_PREFIX` | Docker naming prefix (from GLOBAL_PREFIX) | Auto |
+| `SUITECRM_PASSWORD` | SuiteCRM password (from GLOBAL_PASSWORD) | Auto |
+
+**Runtime Configuration:**
+
 | Variable | Purpose | Required |
 |----------|---------|----------|
 | `SUITECRM_RUNTIME_MYSQL_HOST` | Database hostname | Yes |
 | `SUITECRM_RUNTIME_MYSQL_PORT` | Database port | No (default: 3306) |
 | `SUITECRM_RUNTIME_MYSQL_NAME` | Database name | Yes |
 | `SUITECRM_RUNTIME_MYSQL_USER` | Database username | Yes |
-| `SUITECRM_RUNTIME_MYSQL_PASSWORD` | Database password | Yes |
+| `SUITECRM_RUNTIME_MYSQL_PASSWORD` | Database password (uses SUITECRM_PASSWORD) | Yes |
 | `SUITECRM_RUNTIME_MYSQL_SSL_ENABLED` | Enable SSL | No (default: true) |
 | `SUITECRM_RUNTIME_MYSQL_SSL_VERIFY` | Verify SSL cert | No (default: true) |
 | `SUITECRM_SITE_URL` | Public URL | Yes |
 | `SUITECRM_ADMIN_USER` | Admin username | Yes (for setup) |
-| `SUITECRM_ADMIN_PASSWORD` | Admin password | Yes (for setup) |
+| `SUITECRM_ADMIN_PASSWORD` | Admin password (uses SUITECRM_PASSWORD) | Yes |
 | `SUITECRM_LOG_LEVEL` | Logging verbosity | No (default: warning) |
 | `SUITECRM_INSTALLER_LOCKED` | Lock installer | No (default: false) |
 | `TZ` | Timezone | No (default: UTC) |
@@ -366,16 +377,16 @@ $sugar_config['site_url'] = 'https://yoursite.com';
 
 ### 4.1 Resources Created
 
-The `azure-provision-infra.sh` script creates the following resources:
+The `azure-provision-infra.sh` script creates the following resources using `GLOBAL_PREFIX`:
 
-| Resource | Naming Convention | Purpose |
-|----------|-------------------|---------|
-| Resource Group | `rg-{prefix}-suitecrm` | Container for all resources |
-| MySQL Flexible Server | `{prefix}-mysql` | Database server |
-| MySQL Database | `suitecrm` | CRM database |
-| Storage Account | `{prefix}storage` | File storage |
-| File Shares | `suitecrm-upload`, `suitecrm-custom`, `suitecrm-cache` | Persistent files |
-| Container Registry | `{prefix}acr` | Docker image repository |
+| Resource | Naming Convention | Example (GLOBAL_PREFIX=buzzmag) |
+|----------|-------------------|--------------------------------|
+| Resource Group | `${GLOBAL_PREFIX}-rg` | `buzzmag-rg` |
+| MySQL Flexible Server | `${GLOBAL_PREFIX}-mysql` | `buzzmag-mysql` |
+| MySQL Database | `suitecrm` | `suitecrm` |
+| Storage Account | `${GLOBAL_PREFIX}storage` | `buzzmagstorage` |
+| File Shares | `suitecrm-upload`, `suitecrm-custom`, `suitecrm-cache` | (unchanged) |
+| Container Registry | `${GLOBAL_PREFIX}acr` | `buzzmagacr` |
 
 ### 4.2 Azure MySQL Configuration
 
@@ -636,15 +647,16 @@ cd TheBuzzMagazines
    
    | Variable | How to Get |
    |----------|------------|
+   | `GLOBAL_PREFIX` | Choose unique prefix (3-8 chars, lowercase, e.g., `buzzmag`) |
+   | `GLOBAL_PASSWORD` | Create strong password (8+ chars, mixed case, numbers, special) |
    | `AZURE_SUBSCRIPTION_ID` | Run: `az account show --query id -o tsv` |
    | `AZURE_LOCATION` | Choose: `eastus`, `westus2`, `southcentralus`, etc. |
-   | `AZURE_RESOURCE_PREFIX` | Choose unique prefix (e.g., `buzzmag`) |
-   | `SUITECRM_RUNTIME_MYSQL_PASSWORD` | Create strong password (8+ chars, mixed case, numbers) |
-   | `SUITECRM_ADMIN_PASSWORD` | Create admin password |
+   
+   > **Note:** `AZURE_RESOURCE_PREFIX`, `DOCKER_PREFIX`, and all passwords are automatically derived from `GLOBAL_PREFIX` and `GLOBAL_PASSWORD`.
 
 4. **Validate the configuration:**
    ```bash
-   ./scripts/validate-env.sh
+   ./scripts/env-validate.sh
    ```
    
    All items should show `✓` (green checkmark).

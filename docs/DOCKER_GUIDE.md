@@ -42,6 +42,12 @@ The Docker configuration follows these core principles:
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         .env (Single Source of Truth)                   │
+│  ┌───────────────────┐  ┌─────────────────────┐  ┌─────────────────┐    │
+│  │ GLOBAL_* vars     │  │ Derived prefixes    │  │ Derived pwds    │    │
+│  │ GLOBAL_PREFIX     │──│ AZURE_RESOURCE_*    │  │ SUITECRM_PWD    │    │
+│  │ GLOBAL_PASSWORD   │  │ DOCKER_PREFIX       │  │ AZURE_PASSWORD  │    │
+│  └───────────────────┘  └─────────────────────┘  └─────────────────┘    │
+│                                    │                                    │
 │  ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────┐  │
 │  │ DOCKER_* variables  │  │ SUITECRM_* vars     │  │ AZURE_* vars    │  │
 │  │ Build-time config   │  │ Runtime config      │  │ Infrastructure  │  │
@@ -230,7 +236,17 @@ $ ./scripts/docker-generate.sh
 
 ## 4. Environment Variables Reference
 
-### 4.1 Docker Build Configuration
+### 4.1 Global Configuration
+
+These global variables provide a single source of truth for naming and passwords:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GLOBAL_PREFIX` | `buzzmag` | Global naming prefix for all resources |
+| `GLOBAL_PASSWORD` | (set in .env) | Default password for development |
+| `DOCKER_PREFIX` | `${GLOBAL_PREFIX}` | Docker-specific prefix (inherits from global) |
+
+### 4.2 Docker Build Configuration
 
 These variables control the Docker image build process.
 
@@ -239,19 +255,19 @@ These variables control the Docker image build process.
 | `DOCKER_PHP_BASE_IMAGE` | `php:8.3-apache` | Base PHP image |
 | `DOCKER_SUITECRM_VERSION` | `8.8.0` | SuiteCRM version to install |
 | `DOCKER_PLATFORM` | `linux/amd64` | Target platform |
-| `DOCKER_IMAGE_NAME` | `suitecrm` | Image name |
+| `DOCKER_IMAGE_NAME` | `${DOCKER_PREFIX}-suitecrm` | Image name (uses prefix) |
 | `DOCKER_IMAGE_TAG` | `latest` | Image tag |
-| `DOCKER_CONTAINER_NAME` | `suitecrm-web` | Container name |
-| `DOCKER_NETWORK_NAME` | `suitecrm-network` | Docker network name |
+| `DOCKER_CONTAINER_NAME` | `${DOCKER_PREFIX}-suitecrm-web` | Container name (uses prefix) |
+| `DOCKER_NETWORK_NAME` | `${DOCKER_PREFIX}-suitecrm-network` | Docker network name (uses prefix) |
 
-### 4.2 Docker Labels
+### 4.3 Docker Labels
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DOCKER_LABEL_MAINTAINER` | `TheBuzzMagazines DevOps` | Image maintainer |
 | `DOCKER_LABEL_DESCRIPTION` | `SuiteCRM Cloud-Native...` | Image description |
 
-### 4.3 PHP Configuration
+### 4.4 PHP Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -262,7 +278,7 @@ These variables control the Docker image build process.
 | `DOCKER_PHP_MAX_INPUT_TIME` | `300` | Input parsing timeout |
 | `DOCKER_PHP_MAX_INPUT_VARS` | `10000` | Max input variables |
 
-### 4.4 OPcache Configuration
+### 4.5 OPcache Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -270,14 +286,14 @@ These variables control the Docker image build process.
 | `DOCKER_OPCACHE_INTERNED_STRINGS` | `16` | Interned strings buffer (MB) |
 | `DOCKER_OPCACHE_MAX_FILES` | `10000` | Max cached files |
 
-### 4.5 Networking
+### 4.6 Networking
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DOCKER_HOST_PORT` | `80` | Host port to expose |
 | `DOCKER_CONTAINER_PORT` | `80` | Container port |
 
-### 4.6 Health Check
+### 4.7 Health Check
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -286,7 +302,7 @@ These variables control the Docker image build process.
 | `DOCKER_HEALTHCHECK_RETRIES` | `3` | Retries before unhealthy |
 | `DOCKER_HEALTHCHECK_START_PERIOD` | `60s` | Initial startup grace period |
 
-### 4.7 Runtime Configuration (SUITECRM_*)
+### 4.8 Runtime Configuration (SUITECRM_*)
 
 These are passed to the container at runtime, not baked into the image.
 
@@ -735,6 +751,20 @@ mount | grep azure
 
 ```bash
 # ============================================================================
+# GLOBAL CONFIGURATION
+# ============================================================================
+# Single source of truth for naming and passwords
+GLOBAL_PREFIX=buzzmag
+GLOBAL_PASSWORD=q2w3e4R%
+
+# Derived prefixes and passwords
+AZURE_RESOURCE_PREFIX=${GLOBAL_PREFIX}
+DOCKER_PREFIX=${GLOBAL_PREFIX}
+SUITECRM_PASSWORD=${GLOBAL_PASSWORD}
+AZURE_PASSWORD=${GLOBAL_PASSWORD}
+DOCKER_PASSWORD=${GLOBAL_PASSWORD}
+
+# ============================================================================
 # DOCKER BUILD CONFIGURATION
 # ============================================================================
 # Base image and versions
@@ -742,11 +772,11 @@ DOCKER_PHP_BASE_IMAGE=php:8.3-apache
 DOCKER_SUITECRM_VERSION=8.8.0
 DOCKER_PLATFORM=linux/amd64
 
-# Container naming
-DOCKER_IMAGE_NAME=suitecrm
+# Container naming (uses DOCKER_PREFIX)
+DOCKER_IMAGE_NAME=${DOCKER_PREFIX}-suitecrm
 DOCKER_IMAGE_TAG=latest
-DOCKER_CONTAINER_NAME=suitecrm-web
-DOCKER_NETWORK_NAME=suitecrm-network
+DOCKER_CONTAINER_NAME=${DOCKER_PREFIX}-suitecrm-web
+DOCKER_NETWORK_NAME=${DOCKER_PREFIX}-suitecrm-network
 
 # Labels
 DOCKER_LABEL_MAINTAINER=TheBuzzMagazines DevOps
@@ -798,7 +828,7 @@ TheBuzzMagazines/
 │   ├── docker-teardown.sh         # Remove artifacts
 │   ├── cli.sh                     # Command-line interface
 │   ├── menu.sh                    # Interactive menu
-│   └── validate-env.sh            # Environment validation
+│   └── env-validate.sh             # Environment validation
 └── docs/
     ├── DOCKER_GUIDE.md            # This document
     ├── ENV_GUIDE.md               # Environment variable reference
@@ -811,12 +841,15 @@ TheBuzzMagazines/
 
 | Category | Prefix | Count | Purpose |
 |----------|--------|-------|---------|
+| **Global** | `GLOBAL_*` | 2 | Single source of truth (prefix, password) |
+| **Derived** | `*_PREFIX`, `*_PASSWORD` | 5 | Inherit from GLOBAL_* |
 | Base Image | `DOCKER_PHP_*`, `DOCKER_SUITECRM_*` | 3 | PHP and SuiteCRM versions |
-| Container | `DOCKER_CONTAINER_*`, `DOCKER_IMAGE_*` | 4 | Naming and tagging |
+| Container | `DOCKER_CONTAINER_*`, `DOCKER_IMAGE_*` | 4 | Naming and tagging (use DOCKER_PREFIX) |
 | PHP Settings | `DOCKER_PHP_*` | 6 | PHP configuration |
 | OPcache | `DOCKER_OPCACHE_*` | 3 | PHP opcode cache |
 | Networking | `DOCKER_*_PORT` | 2 | Port mapping |
 | Health Check | `DOCKER_HEALTHCHECK_*` | 4 | Container health |
 | Labels | `DOCKER_LABEL_*` | 2 | Image metadata |
+| **Total Global** | `GLOBAL_*` | **2** | Master configuration |
 | **Total Build-Time** | `DOCKER_*` | **~24** | Baked into image |
 | **Total Runtime** | `SUITECRM_*` | **~12** | Passed at startup |

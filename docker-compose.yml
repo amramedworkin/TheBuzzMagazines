@@ -1,21 +1,46 @@
-# Docker Compose for SuiteCRM 8.8.0
+# Docker Compose for SuiteCRM
 # LOCAL DEVELOPMENT with Azure Backend
 #
+# All configuration is driven from .env file using DOCKER_* variables.
+#
 # Prerequisites:
-#   1. Run: ./scripts/azure-provision-infra.sh (creates Azure resources)
-#   2. Run: sudo ./scripts/azure-mount-fileshare-to-local.sh (mounts Azure Files locally)
-#   3. Run: docker compose up --build -d
+#   1. Configure .env (copy from .env.example if needed)
+#   2. Run: ./scripts/azure-provision-infra.sh (creates Azure resources)
+#   3. Run: sudo ./scripts/azure-mount-fileshare-to-local.sh (mounts Azure Files locally)
+#   4. Run: docker compose up --build -d
 
 services:
   web:
     build:
       context: .
       dockerfile: Dockerfile
-    platform: linux/amd64
-    container_name: suitecrm-web
+      args:
+        # Build-time arguments from DOCKER_* variables
+        DOCKER_PHP_BASE_IMAGE: ${DOCKER_PHP_BASE_IMAGE:-php:8.3-apache}
+        DOCKER_SUITECRM_VERSION: ${DOCKER_SUITECRM_VERSION:-8.8.0}
+        DOCKER_PLATFORM: ${DOCKER_PLATFORM:-linux/amd64}
+        DOCKER_LABEL_MAINTAINER: ${DOCKER_LABEL_MAINTAINER:-TheBuzzMagazines DevOps}
+        DOCKER_LABEL_DESCRIPTION: ${DOCKER_LABEL_DESCRIPTION:-SuiteCRM Cloud-Native for Azure Container Apps}
+        # PHP Configuration
+        DOCKER_PHP_MEMORY_LIMIT: ${DOCKER_PHP_MEMORY_LIMIT:-512M}
+        DOCKER_PHP_UPLOAD_MAX_FILESIZE: ${DOCKER_PHP_UPLOAD_MAX_FILESIZE:-100M}
+        DOCKER_PHP_POST_MAX_SIZE: ${DOCKER_PHP_POST_MAX_SIZE:-100M}
+        DOCKER_PHP_MAX_EXECUTION_TIME: ${DOCKER_PHP_MAX_EXECUTION_TIME:-300}
+        DOCKER_PHP_MAX_INPUT_TIME: ${DOCKER_PHP_MAX_INPUT_TIME:-300}
+        DOCKER_PHP_MAX_INPUT_VARS: ${DOCKER_PHP_MAX_INPUT_VARS:-10000}
+        # OPcache Configuration
+        DOCKER_OPCACHE_MEMORY: ${DOCKER_OPCACHE_MEMORY:-256}
+        DOCKER_OPCACHE_INTERNED_STRINGS: ${DOCKER_OPCACHE_INTERNED_STRINGS:-16}
+        DOCKER_OPCACHE_MAX_FILES: ${DOCKER_OPCACHE_MAX_FILES:-10000}
+        # Container port and timezone
+        DOCKER_CONTAINER_PORT: ${DOCKER_CONTAINER_PORT:-80}
+        TZ: ${TZ:-America/Chicago}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
+    image: ${DOCKER_IMAGE_NAME:-suitecrm}:${DOCKER_IMAGE_TAG:-latest}
+    container_name: ${DOCKER_CONTAINER_NAME:-suitecrm-web}
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "${DOCKER_HOST_PORT:-80}:${DOCKER_CONTAINER_PORT:-80}"
     environment:
       # Database configuration (Azure MySQL) - SUITECRM_RUNTIME_MYSQL_*
       - SUITECRM_RUNTIME_MYSQL_HOST=${SUITECRM_RUNTIME_MYSQL_HOST}
@@ -29,12 +54,16 @@ services:
       # SuiteCRM configuration
       - SUITECRM_SITE_URL=${SUITECRM_SITE_URL:-http://localhost}
       - SUITECRM_ADMIN_USER=${SUITECRM_ADMIN_USER:-admin}
-      - SUITECRM_ADMIN_PASSWORD=${SUITECRM_ADMIN_PASSWORD:-admin}
+      - SUITECRM_ADMIN_PASSWORD=${SUITECRM_ADMIN_PASSWORD}
       - SUITECRM_LOG_LEVEL=${SUITECRM_LOG_LEVEL:-debug}
       - SUITECRM_INSTALLER_LOCKED=${SUITECRM_INSTALLER_LOCKED:-false}
       # General
-      - TZ=${TZ:-UTC}
+      - TZ=${TZ:-America/Chicago}
       - SKIP_DB_WAIT=${SKIP_DB_WAIT:-false}
+      # Docker entrypoint behavior
+      - DOCKER_DB_WAIT_MAX_ATTEMPTS=${DOCKER_DB_WAIT_MAX_ATTEMPTS:-30}
+      - DOCKER_DB_WAIT_INTERVAL=${DOCKER_DB_WAIT_INTERVAL:-5}
+      - DOCKER_PHP_UPLOAD_MAX_FILESIZE=${DOCKER_PHP_UPLOAD_MAX_FILESIZE:-100M}
     volumes:
       # Azure Files mounted locally via SMB
       # These paths are created by: sudo ./scripts/azure-mount-fileshare-to-local.sh
@@ -42,14 +71,18 @@ services:
       - ${AZURE_FILES_MOUNT_BASE:-/mnt/azure/suitecrm}/custom:/var/www/html/public/legacy/custom
       - ${AZURE_FILES_MOUNT_BASE:-/mnt/azure/suitecrm}/cache:/var/www/html/public/legacy/cache
     networks:
-      - suitecrm-network
+      - suitecrm-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      test: ["CMD", "curl", "-f", "${DOCKER_HEALTHCHECK_URL:-http://localhost/}"]
+      interval: ${DOCKER_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${DOCKER_HEALTHCHECK_TIMEOUT:-10s}
+      retries: ${DOCKER_HEALTHCHECK_RETRIES:-3}
+      start_period: ${DOCKER_HEALTHCHECK_START_PERIOD:-60s}
 
 networks:
-  suitecrm-network:
+  # Network with dynamic name from .env
+  # The key 'suitecrm-net' is used internally by compose
+  # The actual network name is set via DOCKER_NETWORK_NAME
+  suitecrm-net:
+    name: ${DOCKER_NETWORK_NAME:-suitecrm-network}
     driver: bridge

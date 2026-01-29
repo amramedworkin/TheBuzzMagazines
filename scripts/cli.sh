@@ -80,21 +80,35 @@ Commands:
                                   --errors-only  Only show errors (no warnings/success)
                                   --quiet        Minimal output, just pass/fail
 
+    show-env [category]         Display .env variables with fully expanded values
+                                Shows actual resolved values (no \${} references)
+                                Categories: all (default), global, azure, docker, mysql, suitecrm, migration
+
     provision [options]         Run Azure resource provisioning
                                 Creates Azure MySQL, Storage, ACR resources
+                                Safe to re-run: skips existing resources
                                 Options:
-                                  -y, --yes      Run without prompting
+                                  -y, --yes        Run without prompting
+                                  -v, --verbose    Show detailed logging output
+                                  --retry-shares   Only retry file share creation
+                                  --status         Show what exists vs needs creation
 
     mount [options]             Mount Azure Files locally
                                 Mounts Azure file shares for local development
                                 Options:
-                                  -y, --yes      Run without prompting
-                                Note: Requires sudo
+                                  -y, --yes        Run without prompting
+                                  -v, --verbose    Show detailed logging output
+                                Note: Script prompts for sudo password when needed
 
     unmount [options]           Unmount Azure Files
                                 Options:
-                                  -y, --yes      Run without prompting
-                                Note: Requires sudo
+                                  -y, --yes        Run without prompting
+                                  -v, --verbose    Show detailed logging output
+                                Note: Script prompts for sudo password when needed
+
+    mount-status                Check Azure Files mount status
+                                Shows current mount state (no sudo needed)
+                                Useful for automated checks before docker-start
 
     show-log-provision          Show the most recent azure-provision-infra.sh log
     show-log-mount              Show the most recent azure-mount-fileshare-to-local.sh log
@@ -114,34 +128,64 @@ Commands:
                                 Checks all resources defined in .env against Azure
                                 Shows summary table with resource status
 
-    teardown                    Tear down all Azure infrastructure
+    mysql-status [options]      Check Azure MySQL database status
+                                Tests server existence, state, and connectivity
+                                Options:
+                                  --quick, -q    Quick check (server existence only)
+                                  --connect, -c  Test MySQL connection with credentials
+
+    teardown [options]          Tear down all Azure infrastructure
                                 Deletes MySQL server, ACR, Storage Account, and Resource Group
                                 WARNING: This is destructive and cannot be undone
+                                Options:
+                                  -y, --yes        Run without prompting
+                                  -v, --verbose    Show detailed logging output
 
     docker-build [options]      Build Docker image for SuiteCRM
                                 Options:
-                                  -y, --yes      Run without prompting
-                                  --no-cache     Build without Docker cache
+                                  -y, --yes        Run without prompting
+                                  -v, --verbose    Show detailed logging output
+                                  --no-cache       Build without Docker cache
+                                  --force, -f      Rebuild even if image exists
 
     docker-start [options]      Start SuiteCRM container
                                 Validates image exists and mounts are ready
                                 Options:
-                                  -y, --yes      Run without prompting
+                                  -y, --yes        Run without prompting
+                                  -v, --verbose    Show detailed logging output
 
     docker-stop [options]       Stop SuiteCRM container gracefully
                                 Options:
-                                  -y, --yes      Run without prompting
+                                  -y, --yes        Run without prompting
+                                  -v, --verbose    Show detailed logging output
 
     docker-validate             Validate Docker environment
                                 Checks image, container, health, volumes, mounts
 
+    docker-validate-pre         Pre-build validation (prerequisites check)
+                                Validates Docker, files, .env, disk space, ports
+
+    docker-validate-post        Post-build validation (image and container check)
+                                Validates image, container, health, HTTP, DB connectivity
+
+    docker-validate-deployed    Azure deployment validation
+                                Validates ACR, Container Apps, MySQL, HTTPS response
+
+    docker-validate-all         Run all Docker lifecycle validations
+                                Runs pre, post, and deployed phases
+
     docker-teardown [options]   Remove all Docker artifacts (DESTRUCTIVE)
                                 Removes container, image, volumes, network
                                 Options:
-                                  -y, --yes      Run without prompting
-                                  --prune        Also prune build cache
+                                  -y, --yes        Run without prompting
+                                  -v, --verbose    Show detailed logging output
+                                  --prune          Also prune build cache
 
     docker-logs                 View SuiteCRM container logs
+
+    build-status                Show build cycle status summary
+                                Checks environment, Azure, mounts, Docker image/container
+                                Useful for quickly seeing what steps are complete
 
     help                        Show this help message
 
@@ -399,10 +443,10 @@ backup_schema_source() {
 # ============================================================================
 
 validate_env() {
-    local validate_script="$SCRIPT_DIR/validate-env.sh"
+    local validate_script="$SCRIPT_DIR/env-validate.sh"
     
     if [[ ! -f "$validate_script" ]]; then
-        print_error "validate-env.sh not found at $validate_script"
+        print_error "env-validate.sh not found at $validate_script"
         exit 1
     fi
     
@@ -438,13 +482,7 @@ run_mount() {
         exit 1
     fi
     
-    # Check if running as root
-    if [[ $EUID -ne 0 ]]; then
-        print_error "Mount requires sudo. Run: sudo $0 mount $*"
-        exit 1
-    fi
-    
-    # Run the mount script (pass through all arguments)
+    # Script handles sudo internally - will prompt for password when needed
     "$mount_script" "$@"
 }
 
@@ -456,14 +494,20 @@ run_unmount() {
         exit 1
     fi
     
-    # Check if running as root
-    if [[ $EUID -ne 0 ]]; then
-        print_error "Unmount requires sudo. Run: sudo $0 unmount $*"
+    # Script handles sudo internally - will prompt for password when needed
+    "$mount_script" unmount "$@"
+}
+
+run_mount_status() {
+    local mount_script="$SCRIPT_DIR/azure-mount-fileshare-to-local.sh"
+    
+    if [[ ! -f "$mount_script" ]]; then
+        print_error "azure-mount-fileshare-to-local.sh not found at $mount_script"
         exit 1
     fi
     
-    # Run the mount script with unmount action (pass through all arguments)
-    "$mount_script" unmount "$@"
+    # Status check doesn't require sudo
+    "$mount_script" status
 }
 
 run_test_azure_capabilities() {
@@ -504,11 +548,20 @@ run_validate_resources() {
         exit 1
     fi
     
-    # Change to project root so script can find .env
     cd "$PROJECT_ROOT" || exit 1
+    bash "$validate_script" "$@"
+}
+
+run_mysql_status() {
+    local status_script="$SCRIPT_DIR/azure-mysql-status.sh"
     
-    # Run the validate script
-    bash "$validate_script"
+    if [[ ! -f "$status_script" ]]; then
+        print_error "azure-mysql-status.sh not found at $status_script"
+        exit 1
+    fi
+    
+    cd "$PROJECT_ROOT" || exit 1
+    bash "$status_script" "$@"
 }
 
 # ============================================================================
@@ -563,6 +616,19 @@ run_docker_validate() {
     bash "$validate_script"
 }
 
+run_docker_validate_lifecycle() {
+    local phase="$1"
+    local validate_script="$SCRIPT_DIR/docker-validate-lifecycle.sh"
+    
+    if [[ ! -f "$validate_script" ]]; then
+        print_error "docker-validate-lifecycle.sh not found at $validate_script"
+        exit 1
+    fi
+    
+    cd "$PROJECT_ROOT" || exit 1
+    bash "$validate_script" "$phase"
+}
+
 run_docker_teardown() {
     local teardown_script="$SCRIPT_DIR/docker-teardown.sh"
     
@@ -578,6 +644,119 @@ run_docker_teardown() {
 run_docker_logs() {
     cd "$PROJECT_ROOT" || exit 1
     docker compose logs -f
+}
+
+# ============================================================================
+# BUILD STATUS
+# ============================================================================
+
+run_build_status() {
+    # Source common.sh for colors
+    source "$SCRIPT_DIR/lib/common.sh"
+    load_env_common
+    
+    print_header "Build Cycle Status Summary"
+    
+    echo "Checking status of each build step..."
+    echo ""
+    
+    local env_status="✗"
+    local env_color="$RED"
+    local azure_status="✗"
+    local azure_color="$RED"
+    local azure_note=""
+    local mount_status="✗"
+    local mount_color="$RED"
+    local image_status="✗"
+    local image_color="$RED"
+    local container_status="✗"
+    local container_color="$RED"
+    local container_note=""
+    
+    # Check environment
+    if "$SCRIPT_DIR/env-validate.sh" --quiet 2>/dev/null; then
+        env_status="✓"
+        env_color="$GREEN"
+    fi
+    
+    # Check Azure resources (if logged in)
+    if az account show &>/dev/null; then
+        # Run azure-validate-resources.sh and check exit code (suppress output)
+        if "$SCRIPT_DIR/azure-validate-resources.sh" &>/dev/null; then
+            azure_status="✓"
+            azure_color="$GREEN"
+        else
+            azure_status="◑"
+            azure_color="$YELLOW"
+            azure_note=" (partial)"
+        fi
+    else
+        azure_status="○"
+        azure_color="$DIM"
+        azure_note=" (not logged in)"
+    fi
+    
+    # Check mounts
+    local mount_base="${AZURE_FILES_MOUNT_BASE:-/mnt/azure/suitecrm}"
+    if mountpoint -q "$mount_base/${AZURE_FILES_SHARE_UPLOAD:-upload}" 2>/dev/null; then
+        mount_status="✓"
+        mount_color="$GREEN"
+    fi
+    
+    # Check Docker image
+    local image_name="${DOCKER_IMAGE_NAME:-buzzmag-suitecrm}"
+    if docker image inspect "$image_name" &>/dev/null; then
+        image_status="✓"
+        image_color="$GREEN"
+    fi
+    
+    # Check container
+    local container_name="${DOCKER_CONTAINER_NAME:-suitecrm-web}"
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${container_name}$"; then
+        container_status="✓"
+        container_color="$GREEN"
+    elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${container_name}$"; then
+        container_status="◑"
+        container_color="$YELLOW"
+        container_note=" (stopped)"
+    fi
+    
+    echo "───────────────────────────────────────────────────────────────"
+    printf "%-6s %-30s %s\n" "Step" "Component" "Status"
+    echo "───────────────────────────────────────────────────────────────"
+    echo -e "1      Environment (.env)          ${env_color}${env_status}${NC}"
+    echo -e "2-3    Azure Resources             ${azure_color}${azure_status}${NC}${azure_note}"
+    echo -e "4      Azure Files Mounts          ${mount_color}${mount_status}${NC}"
+    echo -e "5-6    Docker Image                ${image_color}${image_status}${NC}"
+    echo -e "7-8    Container Running           ${container_color}${container_status}${NC}${container_note}"
+    echo "───────────────────────────────────────────────────────────────"
+    echo ""
+    
+    # Recommendations
+    echo "Recommendations:"
+    echo ""
+    
+    if [[ "$env_status" == "✗" ]]; then
+        echo "  → Run: ./scripts/cli.sh validate-env"
+    elif [[ "$azure_status" == "✗" ]] || [[ "$azure_status" == "◑" ]]; then
+        if [[ "$azure_status" == "○" ]]; then
+            echo "  → Run: az login"
+        else
+            echo "  → Run: ./scripts/cli.sh provision"
+        fi
+    elif [[ "$mount_status" == "✗" ]]; then
+        echo "  → Run: ./scripts/cli.sh mount"
+    elif [[ "$image_status" == "✗" ]]; then
+        echo "  → Run: ./scripts/cli.sh docker-build"
+    elif [[ "$container_status" == "✗" ]]; then
+        echo "  → Run: ./scripts/cli.sh docker-start"
+    elif [[ "$container_status" == "◑" ]]; then
+        echo "  → Container is stopped. Run: ./scripts/cli.sh docker-start"
+    else
+        echo "  ✓ All components ready. SuiteCRM should be accessible."
+    fi
+    
+    echo ""
 }
 
 # ============================================================================
@@ -750,6 +929,9 @@ main() {
         validate-env)
             validate_env "$@"
             ;;
+        show-env)
+            "$SCRIPT_DIR/env-show.sh" "$@"
+            ;;
         provision)
             run_provision "$@"
             ;;
@@ -758,6 +940,9 @@ main() {
             ;;
         unmount)
             run_unmount "$@"
+            ;;
+        mount-status)
+            run_mount_status
             ;;
         show-log-provision)
             show_log "azure-provision"
@@ -777,6 +962,9 @@ main() {
         validate-resources)
             run_validate_resources
             ;;
+        mysql-status)
+            run_mysql_status "$@"
+            ;;
         teardown)
             run_teardown
             ;;
@@ -792,11 +980,26 @@ main() {
         docker-validate)
             run_docker_validate
             ;;
+        docker-validate-pre)
+            run_docker_validate_lifecycle "pre"
+            ;;
+        docker-validate-post)
+            run_docker_validate_lifecycle "post"
+            ;;
+        docker-validate-deployed)
+            run_docker_validate_lifecycle "deployed"
+            ;;
+        docker-validate-all)
+            run_docker_validate_lifecycle "all"
+            ;;
         docker-teardown)
             run_docker_teardown "$@"
             ;;
         docker-logs)
             run_docker_logs
+            ;;
+        build-status)
+            run_build_status
             ;;
         help|--help|-h|"")
             show_help

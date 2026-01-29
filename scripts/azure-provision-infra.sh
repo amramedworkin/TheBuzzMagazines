@@ -6,9 +6,11 @@
 # Reads configuration from .env file
 #
 # Usage:
-#   ./azure-provision-infra.sh          # Interactive mode (default)
-#   ./azure-provision-infra.sh -y       # Non-interactive mode
-#   ./azure-provision-infra.sh --yes    # Non-interactive mode
+#   ./azure-provision-infra.sh              # Interactive mode (default)
+#   ./azure-provision-infra.sh -y           # Non-interactive mode
+#   ./azure-provision-infra.sh --yes        # Non-interactive mode
+#   ./azure-provision-infra.sh --retry-shares   # Retry file share creation only
+#   ./azure-provision-infra.sh --status     # Show what exists vs needs creation
 # ============================================================================
 
 # ============================================================================
@@ -22,81 +24,22 @@ ENV_FILE="${PROJECT_ROOT}/.env"
 SECRETS_FILE="${PROJECT_ROOT}/.azure-secrets"
 LOGS_DIR="${PROJECT_ROOT}/logs"
 
+# Source common utilities (colors, logging, etc.)
+source "$SCRIPT_DIR/lib/common.sh"
+
 # Interactive mode (default: true, requires user confirmation at each step)
 INTERACTIVE_MODE=true
+
+# Special modes
+RETRY_SHARES_ONLY=false
+STATUS_CHECK_ONLY=false
 
 # Track overall success
 SCRIPT_SUCCESS=true
 FAILED_STEP=""
 
-# ============================================================================
-# LOGGING SETUP
-# ============================================================================
-
-setup_logging() {
-    # Ensure logs directory exists
-    mkdir -p "$LOGS_DIR"
-    
-    # Generate timestamp in Eastern US timezone
-    local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y%m%d_%H%M%S")
-    
-    # New log filename
-    LOG_FILE="${LOGS_DIR}/latest_${SCRIPT_NAME}_${timestamp}.log"
-    
-    # Strip "latest_" prefix from any previous log files for this script
-    for old_log in "${LOGS_DIR}"/latest_${SCRIPT_NAME}_*.log; do
-        if [[ -f "$old_log" && "$old_log" != "$LOG_FILE" ]]; then
-            local new_name="${old_log/latest_/}"
-            mv "$old_log" "$new_name" 2>/dev/null || true
-        fi
-    done
-    
-    # Create the new log file
-    touch "$LOG_FILE"
-    
-    # Log header
-    {
-        echo "============================================================================"
-        echo "Azure Provision Log - Started at $(TZ='America/New_York' date)"
-        echo "Timezone: America/New_York (Eastern US)"
-        echo "Interactive Mode: $INTERACTIVE_MODE"
-        echo "============================================================================"
-        echo ""
-    } >> "$LOG_FILE"
-}
-
-# Log to both console and file
-log() {
-    local level="$1"
-    local message="$2"
-    local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y-%m-%d %H:%M:%S %Z")
-    local log_line="[$timestamp] [$level] $message"
-    
-    echo "$log_line" >> "$LOG_FILE"
-    
-    # Console output with colors
-    case "$level" in
-        INFO)    echo -e "\033[0;34m[INFO]\033[0m $message" ;;
-        SUCCESS) echo -e "\033[0;32m[SUCCESS]\033[0m $message" ;;
-        WARN)    echo -e "\033[1;33m[WARN]\033[0m $message" ;;
-        ERROR)   echo -e "\033[0;31m[ERROR]\033[0m $message" ;;
-        STEP)    echo -e "\033[1;36m[STEP]\033[0m $message" ;;
-        *)       echo "$message" ;;
-    esac
-}
-
-log_info() { log "INFO" "$1"; }
-log_success() { log "SUCCESS" "$1"; }
-log_warn() { log "WARN" "$1"; }
-log_error() { log "ERROR" "$1"; }
-log_step() { log "STEP" "$1"; }
-
-# Log command output (to file only)
-log_cmd_output() {
-    echo "$1" >> "$LOG_FILE"
-}
+# Track resource status for summary
+declare -A RESOURCE_STATUS
 
 # ============================================================================
 # ERROR HANDLING
@@ -122,7 +65,7 @@ handle_error() {
         echo "Failed Step: $step"
         echo "Exit Code: $exit_code"
         echo "Error Message: $error_msg"
-        echo "Timestamp: $(TZ='America/New_York' date)"
+        echo "Timestamp: $(TZ="${LOGGING_TZ:-America/New_York}" date)"
         echo ""
         echo "Possible causes:"
     } >> "$LOG_FILE"
@@ -180,7 +123,7 @@ confirm_step() {
     
     if [[ "$INTERACTIVE_MODE" == "true" ]]; then
         echo ""
-        echo -e "\033[1;33m>>> Next Step: $step_name\033[0m"
+        echo -e "${YELLOW}>>> Next Step: $step_name${NC}"
         echo "    $step_description"
         echo ""
         read -p "    Press Enter to continue, or Ctrl+C to abort... " -r
@@ -201,12 +144,39 @@ parse_args() {
                 INTERACTIVE_MODE=false
                 shift
                 ;;
+            --retry-shares)
+                RETRY_SHARES_ONLY=true
+                INTERACTIVE_MODE=false
+                shift
+                ;;
+            --status)
+                STATUS_CHECK_ONLY=true
+                INTERACTIVE_MODE=false
+                shift
+                ;;
+            -v|--verbose)
+                VERBOSE_MODE=true
+                shift
+                ;;
             -h|--help)
-                echo "Usage: $0 [-y|--yes]"
+                echo "Usage: $0 [OPTIONS]"
                 echo ""
                 echo "Options:"
-                echo "  -y, --yes    Run without prompting for confirmation at each step"
-                echo "  -h, --help   Show this help message"
+                echo "  -y, --yes        Run without prompting for confirmation at each step"
+                echo "  --retry-shares   Only retry creating file shares (skips other resources)"
+                echo "  --status         Show status of all resources (what exists vs needs creation)"
+                echo "  -v, --verbose    Show detailed logging output"
+                echo "  -h, --help       Show this help message"
+                echo ""
+                echo "Re-run Safety:"
+                echo "  This script checks each resource before creating it. Existing resources"
+                echo "  are skipped, making it safe to re-run after partial failures."
+                echo ""
+                echo "Examples:"
+                echo "  $0                    # Interactive provisioning"
+                echo "  $0 -y                 # Non-interactive full provisioning"
+                echo "  $0 --retry-shares     # Only retry file share creation"
+                echo "  $0 --status           # Check what exists"
                 exit 0
                 ;;
             *)
@@ -227,10 +197,10 @@ validate_env_file() {
     
     log_info "Running environment validation..."
     
-    local validate_script="${SCRIPT_DIR}/validate-env.sh"
+    local validate_script="${SCRIPT_DIR}/env-validate.sh"
     
     if [[ ! -f "$validate_script" ]]; then
-        handle_error "validate_env_file" "validate-env.sh not found at $validate_script"
+        handle_error "validate_env_file" "env-validate.sh not found at $validate_script"
     fi
     
     # Run full validation for logging purposes (capture all output)
@@ -270,20 +240,10 @@ load_env() {
 
     log_info "Loading configuration from $ENV_FILE"
     
-    # Source .env file, handling variable substitution
-    set -a
-    source "$ENV_FILE"
-    set +a
-
-    # Expand nested variables from .env (they use ${AZURE_RESOURCE_PREFIX})
-    # These are evaluated here because bash doesn't expand nested vars on source
-    eval "AZURE_RESOURCE_GROUP=$AZURE_RESOURCE_GROUP"
-    eval "AZURE_PROVISION_MYSQL_SERVER_NAME=$AZURE_PROVISION_MYSQL_SERVER_NAME"
-    eval "AZURE_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME"
-    eval "AZURE_ACR_NAME=$AZURE_ACR_NAME"
-    eval "AZURE_CONTAINER_APP_ENV=$AZURE_CONTAINER_APP_ENV"
-    eval "SUITECRM_RUNTIME_MYSQL_HOST=$SUITECRM_RUNTIME_MYSQL_HOST"
+    # Use common environment loading (handles all variable expansion)
+    load_env_common
     
+    log_info "Global prefix: $GLOBAL_PREFIX"
     log_info "Resource prefix: $AZURE_RESOURCE_PREFIX"
     log_info "Resource group: $AZURE_RESOURCE_GROUP"
     log_info "Location: $AZURE_LOCATION"
@@ -315,6 +275,8 @@ validate_prerequisites() {
 
     log_info "Validating required environment variables..."
     local required_vars=(
+        "GLOBAL_PREFIX"
+        "GLOBAL_PASSWORD"
         "AZURE_SUBSCRIPTION_ID"
         "AZURE_LOCATION"
         "AZURE_RESOURCE_PREFIX"
@@ -322,7 +284,7 @@ validate_prerequisites() {
     )
 
     for var in "${required_vars[@]}"; do
-        if [[ -z "${!var}" || "${!var}" == "your-"* || "${!var}" == "CHANGE_ME"* ]]; then
+        if [[ -z "${!var}" || "${!var}" == "your-"* || "${!var}" == "CHANGE_ME"* || "${!var}" == "[YOUR_"* ]]; then
             handle_error "validate_prerequisites" "Required variable $var is not set or has placeholder value in .env"
         fi
         log_info "  ✓ $var is set"
@@ -367,7 +329,8 @@ create_resource_group() {
     
     local output
     if az group show --name "$AZURE_RESOURCE_GROUP" &> /dev/null; then
-        log_warn "Resource group $AZURE_RESOURCE_GROUP already exists - skipping creation"
+        log_info "Resource group '$AZURE_RESOURCE_GROUP' already exists - skipping"
+        log_action "Resource group '$AZURE_RESOURCE_GROUP'" "skipped" "already exists"
         return 0
     fi
     
@@ -382,6 +345,7 @@ create_resource_group() {
     log_cmd_output "$output"
     
     log_success "Resource group '$AZURE_RESOURCE_GROUP' created in '$AZURE_LOCATION'"
+    log_action "Resource group '$AZURE_RESOURCE_GROUP'" "succeeded"
 }
 
 # ============================================================================
@@ -395,7 +359,8 @@ create_mysql_server() {
     
     local output
     if az mysql flexible-server show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_PROVISION_MYSQL_SERVER_NAME" &> /dev/null; then
-        log_warn "MySQL server $AZURE_PROVISION_MYSQL_SERVER_NAME already exists - skipping creation"
+        log_info "MySQL server '$AZURE_PROVISION_MYSQL_SERVER_NAME' already exists - skipping"
+        log_action "MySQL server '$AZURE_PROVISION_MYSQL_SERVER_NAME'" "skipped" "already exists"
     else
         log_info "Creating MySQL Flexible Server (this may take 5-10 minutes)..."
         log_info "  Server: $AZURE_PROVISION_MYSQL_SERVER_NAME"
@@ -419,12 +384,14 @@ create_mysql_server() {
         fi
         log_cmd_output "$output"
         log_success "MySQL server created"
+        log_action "MySQL server '$AZURE_PROVISION_MYSQL_SERVER_NAME'" "succeeded"
     fi
 
     # Create database
     log_info "Checking if database '$SUITECRM_RUNTIME_MYSQL_NAME' exists..."
     if az mysql flexible-server db show --resource-group "$AZURE_RESOURCE_GROUP" --server-name "$AZURE_PROVISION_MYSQL_SERVER_NAME" --database-name "$SUITECRM_RUNTIME_MYSQL_NAME" &> /dev/null; then
-        log_warn "Database $SUITECRM_RUNTIME_MYSQL_NAME already exists - skipping creation"
+        log_info "Database '$SUITECRM_RUNTIME_MYSQL_NAME' already exists - skipping"
+        log_action "Database '$SUITECRM_RUNTIME_MYSQL_NAME'" "skipped" "already exists"
     else
         log_info "Creating database '$SUITECRM_RUNTIME_MYSQL_NAME'..."
         if ! output=$(az mysql flexible-server db create \
@@ -437,6 +404,7 @@ create_mysql_server() {
         fi
         log_cmd_output "$output"
         log_success "Database '$SUITECRM_RUNTIME_MYSQL_NAME' created"
+        log_action "Database '$SUITECRM_RUNTIME_MYSQL_NAME'" "succeeded"
     fi
 
     # Add firewall rule for current IP
@@ -445,37 +413,201 @@ create_mysql_server() {
     my_ip=$(curl -s ifconfig.me)
     log_info "  Your IP: $my_ip"
     
-    if ! output=$(az mysql flexible-server firewall-rule create \
+    local dev_rule_name="DevMachine-$(date +%Y%m%d)"
+    
+    # Check if dev machine firewall rule exists
+    if az mysql flexible-server firewall-rule show \
         --resource-group "$AZURE_RESOURCE_GROUP" \
         --name "$AZURE_PROVISION_MYSQL_SERVER_NAME" \
-        --rule-name "DevMachine-$(date +%Y%m%d)" \
-        --start-ip-address "$my_ip" \
-        --end-ip-address "$my_ip" \
-        --output json 2>&1); then
-        log_warn "Firewall rule may already exist or failed to create"
-        log_cmd_output "$output"
+        --rule-name "$dev_rule_name" &>/dev/null; then
+        log_info "Firewall rule '$dev_rule_name' already exists - skipping"
     else
-        log_cmd_output "$output"
-        log_success "Firewall rule added for IP: $my_ip"
+        if ! output=$(az mysql flexible-server firewall-rule create \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_PROVISION_MYSQL_SERVER_NAME" \
+            --rule-name "$dev_rule_name" \
+            --start-ip-address "$my_ip" \
+            --end-ip-address "$my_ip" \
+            --output json 2>&1); then
+            log_warn "Failed to create firewall rule: $dev_rule_name"
+            log_cmd_output "$output"
+        else
+            log_cmd_output "$output"
+            log_success "Firewall rule added for IP: $my_ip"
+        fi
     fi
 
     # Allow Azure services
     log_info "Allowing Azure services to connect..."
-    if ! output=$(az mysql flexible-server firewall-rule create \
+    
+    # Check if Azure services firewall rule exists
+    if az mysql flexible-server firewall-rule show \
         --resource-group "$AZURE_RESOURCE_GROUP" \
         --name "$AZURE_PROVISION_MYSQL_SERVER_NAME" \
-        --rule-name "AllowAzureServices" \
-        --start-ip-address "0.0.0.0" \
-        --end-ip-address "0.0.0.0" \
-        --output json 2>&1); then
-        log_warn "Azure services firewall rule may already exist"
-        log_cmd_output "$output"
+        --rule-name "AllowAzureServices" &>/dev/null; then
+        log_info "Firewall rule 'AllowAzureServices' already exists - skipping"
     else
-        log_cmd_output "$output"
-        log_success "Azure services firewall rule added"
+        if ! output=$(az mysql flexible-server firewall-rule create \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_PROVISION_MYSQL_SERVER_NAME" \
+            --rule-name "AllowAzureServices" \
+            --start-ip-address "0.0.0.0" \
+            --end-ip-address "0.0.0.0" \
+            --output json 2>&1); then
+            log_warn "Failed to create Azure services firewall rule"
+            log_cmd_output "$output"
+        else
+            log_cmd_output "$output"
+            log_success "Azure services firewall rule added"
+        fi
     fi
 
     log_success "MySQL server setup complete"
+}
+
+# ============================================================================
+# CHECK RESOURCE STATUS (for --status flag)
+# ============================================================================
+
+check_resource_status() {
+    echo ""
+    echo "============================================================================"
+    echo "Azure Resource Status Check"
+    echo "============================================================================"
+    echo ""
+    echo "Checking resources defined in .env..."
+    echo ""
+    
+    local exists_count=0
+    local missing_count=0
+    
+    # Resource Group
+    echo -n "  Resource Group ($AZURE_RESOURCE_GROUP): "
+    if az group show --name "$AZURE_RESOURCE_GROUP" &> /dev/null; then
+        echo -e "${GREEN}EXISTS${NC}"
+        RESOURCE_STATUS["resource_group"]="exists"
+        ((exists_count++))
+    else
+        echo -e "${YELLOW}MISSING${NC}"
+        RESOURCE_STATUS["resource_group"]="missing"
+        ((missing_count++))
+    fi
+    
+    # MySQL Server
+    echo -n "  MySQL Server ($AZURE_PROVISION_MYSQL_SERVER_NAME): "
+    if az mysql flexible-server show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_PROVISION_MYSQL_SERVER_NAME" &> /dev/null 2>&1; then
+        echo -e "${GREEN}EXISTS${NC}"
+        RESOURCE_STATUS["mysql_server"]="exists"
+        ((exists_count++))
+    else
+        echo -e "${YELLOW}MISSING${NC}"
+        RESOURCE_STATUS["mysql_server"]="missing"
+        ((missing_count++))
+    fi
+    
+    # MySQL Database
+    echo -n "  MySQL Database ($SUITECRM_RUNTIME_MYSQL_NAME): "
+    if [[ "${RESOURCE_STATUS["mysql_server"]}" == "exists" ]]; then
+        if az mysql flexible-server db show --resource-group "$AZURE_RESOURCE_GROUP" --server-name "$AZURE_PROVISION_MYSQL_SERVER_NAME" --database-name "$SUITECRM_RUNTIME_MYSQL_NAME" &> /dev/null 2>&1; then
+            echo -e "${GREEN}EXISTS${NC}"
+            RESOURCE_STATUS["mysql_database"]="exists"
+            ((exists_count++))
+        else
+            echo -e "${YELLOW}MISSING${NC}"
+            RESOURCE_STATUS["mysql_database"]="missing"
+            ((missing_count++))
+        fi
+    else
+        echo -e "${DIM}SKIPPED (server missing)${NC}"
+        RESOURCE_STATUS["mysql_database"]="skipped"
+    fi
+    
+    # Storage Account
+    echo -n "  Storage Account ($AZURE_STORAGE_ACCOUNT_NAME): "
+    if az storage account show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_STORAGE_ACCOUNT_NAME" &> /dev/null 2>&1; then
+        echo -e "${GREEN}EXISTS${NC}"
+        RESOURCE_STATUS["storage_account"]="exists"
+        ((exists_count++))
+    else
+        echo -e "${YELLOW}MISSING${NC}"
+        RESOURCE_STATUS["storage_account"]="missing"
+        ((missing_count++))
+    fi
+    
+    # File Shares (only check if storage account exists)
+    local shares=("${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_UPLOAD}" "${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_CUSTOM}" "${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_CACHE}")
+    
+    if [[ "${RESOURCE_STATUS["storage_account"]}" == "exists" ]]; then
+        local storage_key
+        storage_key=$(az storage account keys list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --account-name "$AZURE_STORAGE_ACCOUNT_NAME" \
+            --query '[0].value' -o tsv 2>/dev/null)
+        
+        for share in "${shares[@]}"; do
+            echo -n "  File Share ($share): "
+            if az storage share exists \
+                --name "$share" \
+                --account-name "$AZURE_STORAGE_ACCOUNT_NAME" \
+                --account-key "$storage_key" \
+                --query "exists" -o tsv 2>/dev/null | grep -q "true"; then
+                echo -e "${GREEN}EXISTS${NC}"
+                RESOURCE_STATUS["share_$share"]="exists"
+                ((exists_count++))
+            else
+                echo -e "${YELLOW}MISSING${NC}"
+                RESOURCE_STATUS["share_$share"]="missing"
+                ((missing_count++))
+            fi
+        done
+    else
+        for share in "${shares[@]}"; do
+            echo -e "  File Share ($share): ${DIM}SKIPPED (storage account missing)${NC}"
+            RESOURCE_STATUS["share_$share"]="skipped"
+        done
+    fi
+    
+    # Container Registry
+    echo -n "  Container Registry ($AZURE_ACR_NAME): "
+    if az acr show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_ACR_NAME" &> /dev/null 2>&1; then
+        echo -e "${GREEN}EXISTS${NC}"
+        RESOURCE_STATUS["container_registry"]="exists"
+        ((exists_count++))
+    else
+        echo -e "${YELLOW}MISSING${NC}"
+        RESOURCE_STATUS["container_registry"]="missing"
+        ((missing_count++))
+    fi
+    
+    echo ""
+    echo "----------------------------------------------------------------------------"
+    echo -e "  ${GREEN}Existing:${NC} $exists_count   ${YELLOW}Missing:${NC} $missing_count"
+    echo "----------------------------------------------------------------------------"
+    
+    if [[ $missing_count -gt 0 ]]; then
+        echo ""
+        echo "To create missing resources, run:"
+        echo "  $0 -y"
+        echo ""
+        if [[ "${RESOURCE_STATUS["storage_account"]}" == "exists" ]]; then
+            local has_missing_shares=false
+            for share in "${shares[@]}"; do
+                if [[ "${RESOURCE_STATUS["share_$share"]}" == "missing" ]]; then
+                    has_missing_shares=true
+                    break
+                fi
+            done
+            if [[ "$has_missing_shares" == "true" ]]; then
+                echo "To retry only file shares, run:"
+                echo "  $0 --retry-shares"
+                echo ""
+            fi
+        fi
+    else
+        echo ""
+        echo -e "${GREEN}All resources are provisioned!${NC}"
+        echo ""
+    fi
 }
 
 # ============================================================================
@@ -485,11 +617,14 @@ create_mysql_server() {
 create_storage_account() {
     confirm_step "Create Storage Account" "Create Azure Storage Account '$AZURE_STORAGE_ACCOUNT_NAME' with file shares"
     
-    log_info "Checking if storage account exists..."
-    
+    local storage_exists=false
     local output
+    
+    log_info "Checking if storage account exists..."
     if az storage account show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_STORAGE_ACCOUNT_NAME" &> /dev/null; then
-        log_warn "Storage account $AZURE_STORAGE_ACCOUNT_NAME already exists - skipping creation"
+        log_info "Storage account '$AZURE_STORAGE_ACCOUNT_NAME' already exists - skipping"
+        log_action "Storage account '$AZURE_STORAGE_ACCOUNT_NAME'" "skipped" "already exists"
+        storage_exists=true
     else
         log_info "Creating storage account..."
         if ! output=$(az storage account create \
@@ -504,6 +639,7 @@ create_storage_account() {
         fi
         log_cmd_output "$output"
         log_success "Storage account created"
+        log_action "Storage account '$AZURE_STORAGE_ACCOUNT_NAME'" "succeeded"
     fi
 
     # Get storage key
@@ -518,22 +654,8 @@ create_storage_account() {
     fi
     log_success "Storage key retrieved"
 
-    # Create file shares
-    local shares=("suitecrm-upload" "suitecrm-custom" "suitecrm-cache")
-    for share in "${shares[@]}"; do
-        log_info "Creating file share: $share"
-        if ! output=$(az storage share create \
-            --name "$share" \
-            --account-name "$AZURE_STORAGE_ACCOUNT_NAME" \
-            --account-key "$storage_key" \
-            --output json 2>&1); then
-            log_warn "File share $share may already exist"
-            log_cmd_output "$output"
-        else
-            log_cmd_output "$output"
-            log_success "File share '$share' created"
-        fi
-    done
+    # Create file shares with existence check
+    create_file_shares "$storage_key"
 
     # Save storage key to secrets file
     log_info "Saving storage key to $SECRETS_FILE..."
@@ -542,6 +664,119 @@ create_storage_account() {
     log_success "Storage key saved securely"
 
     log_success "Storage account setup complete"
+}
+
+# ============================================================================
+# CREATE FILE SHARES (can be called independently with --retry-shares)
+# ============================================================================
+
+create_file_shares() {
+    local storage_key="$1"
+    local shares=("${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_UPLOAD}" "${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_CUSTOM}" "${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_CACHE}")
+    local created_count=0
+    local skipped_count=0
+    local failed_count=0
+    
+    log_info "Processing file shares..."
+    log_info "  Share prefix: ${AZURE_FILES_SHARE_PREFIX}"
+    log_info "  Shares to create: ${shares[*]}"
+    
+    for share in "${shares[@]}"; do
+        # Check if share already exists
+        log_info "Checking file share: $share"
+        local share_exists
+        share_exists=$(az storage share exists \
+            --name "$share" \
+            --account-name "$AZURE_STORAGE_ACCOUNT_NAME" \
+            --account-key "$storage_key" \
+            --query "exists" -o tsv 2>/dev/null)
+        
+        if [[ "$share_exists" == "true" ]]; then
+            log_info "File share '$share' already exists - skipping"
+            log_action "File share '$share'" "skipped" "already exists"
+            ((skipped_count++))
+            continue
+        fi
+        
+        # Create the share
+        log_info "Creating file share: $share"
+        local output
+        if ! output=$(az storage share create \
+            --name "$share" \
+            --account-name "$AZURE_STORAGE_ACCOUNT_NAME" \
+            --account-key "$storage_key" \
+            --quota 5120 \
+            --output json 2>&1); then
+            log_error "Failed to create file share '$share'"
+            log_cmd_output "$output"
+            ((failed_count++))
+            
+            # Don't fail the entire script, continue with other shares
+            echo ""
+            echo -e "${RED}File share creation failed: $share${NC}"
+            echo "Error output: $output"
+            echo ""
+        else
+            log_cmd_output "$output"
+            log_success "File share '$share' created"
+            log_action "File share '$share'" "succeeded"
+            ((created_count++))
+        fi
+    done
+
+    # Summary
+    echo ""
+    log_info "File share summary: $created_count created, $skipped_count skipped (already exist), $failed_count failed"
+    
+    if [[ $failed_count -gt 0 ]]; then
+        log_warn "Some file shares failed to create. Re-run with --retry-shares to retry."
+        # Don't fail the script, just warn
+    fi
+}
+
+# ============================================================================
+# RETRY FILE SHARES ONLY
+# ============================================================================
+
+retry_file_shares() {
+    echo ""
+    echo "============================================================================"
+    echo "Retry File Share Creation"
+    echo "============================================================================"
+    echo ""
+    
+    # Check if storage account exists
+    log_info "Checking if storage account exists..."
+    if ! az storage account show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_STORAGE_ACCOUNT_NAME" &> /dev/null; then
+        log_error "Storage account '$AZURE_STORAGE_ACCOUNT_NAME' does not exist"
+        log_error "Run full provisioning first: $0 -y"
+        exit 1
+    fi
+    log_success "Storage account exists: $AZURE_STORAGE_ACCOUNT_NAME"
+    
+    # Get storage key
+    log_info "Retrieving storage account key..."
+    local storage_key
+    if ! storage_key=$(az storage account keys list \
+        --resource-group "$AZURE_RESOURCE_GROUP" \
+        --account-name "$AZURE_STORAGE_ACCOUNT_NAME" \
+        --query '[0].value' -o tsv 2>&1); then
+        log_cmd_output "$storage_key"
+        handle_error "retry_file_shares" "Failed to retrieve storage account key"
+    fi
+    log_success "Storage key retrieved"
+    
+    # Create/retry file shares
+    create_file_shares "$storage_key"
+    
+    # Save storage key to secrets file (in case it wasn't saved before)
+    log_info "Saving storage key to $SECRETS_FILE..."
+    echo "AZURE_STORAGE_KEY=$storage_key" > "$SECRETS_FILE"
+    chmod 600 "$SECRETS_FILE"
+    log_success "Storage key saved"
+    
+    echo ""
+    log_success "File share retry complete"
 }
 
 # ============================================================================
@@ -555,7 +790,8 @@ create_container_registry() {
     
     local output
     if az acr show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_ACR_NAME" &> /dev/null; then
-        log_warn "Container Registry $AZURE_ACR_NAME already exists - skipping creation"
+        log_info "Container Registry '$AZURE_ACR_NAME' already exists - skipping"
+        log_action "Container Registry '$AZURE_ACR_NAME'" "skipped" "already exists"
     else
         log_info "Creating container registry..."
         if ! output=$(az acr create \
@@ -569,6 +805,7 @@ create_container_registry() {
         fi
         log_cmd_output "$output"
         log_success "Container registry created"
+        log_action "Container Registry '$AZURE_ACR_NAME'" "succeeded"
     fi
 
     log_success "Container registry setup complete"
@@ -595,7 +832,7 @@ MySQL Connection Details:
 
 Storage Account:
   Name:     ${AZURE_STORAGE_ACCOUNT_NAME}
-  Shares:   suitecrm-upload, suitecrm-custom, suitecrm-cache
+  Shares:   ${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_UPLOAD}, ${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_CUSTOM}, ${AZURE_FILES_SHARE_PREFIX}-${AZURE_FILES_SHARE_CACHE}
 
 Container Registry:
   Name:     ${AZURE_ACR_NAME}.azurecr.io
@@ -611,7 +848,7 @@ Next Steps:
    docker compose up --build -d
 
 3. Access SuiteCRM:
-   http://localhost
+   ${SUITECRM_SITE_URL}
 
 Log file: $LOG_FILE
 
@@ -621,25 +858,6 @@ EOF
     
     echo "$summary"
     echo "$summary" >> "$LOG_FILE"
-}
-
-# ============================================================================
-# FINALIZE LOGGING
-# ============================================================================
-
-finalize_log() {
-    {
-        echo ""
-        echo "============================================================================"
-        echo "SCRIPT COMPLETED"
-        echo "============================================================================"
-        echo "End Time: $(TZ='America/New_York' date)"
-        echo "Success: $SCRIPT_SUCCESS"
-        if [[ "$SCRIPT_SUCCESS" == "false" ]]; then
-            echo "Failed Step: $FAILED_STEP"
-        fi
-        echo "============================================================================"
-    } >> "$LOG_FILE"
 }
 
 # ============================================================================
@@ -658,22 +876,48 @@ main() {
     echo "Azure Resource Provisioning for SuiteCRM"
     echo "============================================================================"
     echo "Log file: $LOG_FILE"
-    if [[ "$INTERACTIVE_MODE" == "true" ]]; then
+    
+    # Show mode
+    if [[ "$STATUS_CHECK_ONLY" == "true" ]]; then
+        echo "Mode: Status Check (read-only)"
+    elif [[ "$RETRY_SHARES_ONLY" == "true" ]]; then
+        echo "Mode: Retry File Shares Only"
+    elif [[ "$INTERACTIVE_MODE" == "true" ]]; then
         echo "Mode: Interactive (press Enter at each step, Ctrl+C to abort)"
     else
         echo "Mode: Non-interactive (running all steps automatically)"
     fi
     echo ""
-    echo -e "\033[1;33mNOTE:\033[0m Some Azure CLI operations may pause waiting for input."
-    echo "      If the screen appears frozen, press Enter to continue."
+    
+    # Trap to ensure we finalize the log even on error
+    trap finalize_log EXIT
+    
+    # Load environment (needed for all modes)
+    load_env
+    
+    # Status check mode
+    if [[ "$STATUS_CHECK_ONLY" == "true" ]]; then
+        validate_prerequisites
+        set_subscription
+        check_resource_status
+        exit 0
+    fi
+    
+    # Retry shares only mode
+    if [[ "$RETRY_SHARES_ONLY" == "true" ]]; then
+        validate_prerequisites
+        set_subscription
+        retry_file_shares
+        exit 0
+    fi
+    
+    # Full provisioning mode
+    echo -e "\033[1;33mNOTE:\033[0m This script checks each resource before creating it."
+    echo "      Existing resources will be skipped (safe to re-run)."
     echo "      Long operations (MySQL creation) can take 5-10 minutes."
     echo ""
 
-    # Trap to ensure we finalize the log even on error
-    trap finalize_log EXIT
-
     # Run provisioning steps
-    load_env
     validate_env_file
     validate_prerequisites
     set_subscription

@@ -21,71 +21,13 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="${PROJECT_ROOT}/.env"
 LOGS_DIR="${PROJECT_ROOT}/logs"
 
+# Source common utilities (colors, logging, etc.)
+source "$SCRIPT_DIR/lib/common.sh"
+
 # Options
 INTERACTIVE_MODE=true
 NO_CACHE=false
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-CYAN='\033[1;36m'
-BOLD='\033[1m'
-NC='\033[0m'
-
-# ============================================================================
-# LOGGING SETUP
-# ============================================================================
-
-setup_logging() {
-    mkdir -p "$LOGS_DIR"
-    local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y%m%d_%H%M%S")
-    LOG_FILE="${LOGS_DIR}/latest_${SCRIPT_NAME}_${timestamp}.log"
-    
-    # Strip "latest_" prefix from previous logs
-    for old_log in "${LOGS_DIR}"/latest_${SCRIPT_NAME}_*.log; do
-        if [[ -f "$old_log" && "$old_log" != "$LOG_FILE" ]]; then
-            local new_name="${old_log/latest_/}"
-            mv "$old_log" "$new_name" 2>/dev/null || true
-        fi
-    done
-    
-    touch "$LOG_FILE"
-    {
-        echo "============================================================================"
-        echo "Docker Build Log - $(TZ='America/New_York' date)"
-        echo "Timezone: America/New_York (Eastern US)"
-        echo "Interactive Mode: $INTERACTIVE_MODE"
-        echo "No Cache: $NO_CACHE"
-        echo "============================================================================"
-        echo ""
-    } >> "$LOG_FILE"
-}
-
-log() {
-    local level="$1"
-    local message="$2"
-    local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y-%m-%d %H:%M:%S %Z")
-    echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
-    
-    case "$level" in
-        INFO)    echo -e "${BLUE}[INFO]${NC} $message" ;;
-        SUCCESS) echo -e "${GREEN}[SUCCESS]${NC} $message" ;;
-        WARN)    echo -e "${YELLOW}[WARN]${NC} $message" ;;
-        ERROR)   echo -e "${RED}[ERROR]${NC} $message" ;;
-        STEP)    echo -e "${CYAN}[STEP]${NC} $message" ;;
-        *)       echo "$message" ;;
-    esac
-}
-
-log_info() { log "INFO" "$1"; }
-log_success() { log "SUCCESS" "$1"; }
-log_warn() { log "WARN" "$1"; }
-log_error() { log "ERROR" "$1"; }
-log_step() { log "STEP" "$1"; }
+FORCE_BUILD=false
 
 # ============================================================================
 # PARSE COMMAND LINE ARGUMENTS
@@ -100,14 +42,25 @@ parse_args() {
                 ;;
             --no-cache)
                 NO_CACHE=true
+                FORCE_BUILD=true  # --no-cache implies force rebuild
+                shift
+                ;;
+            --force|-f)
+                FORCE_BUILD=true
+                shift
+                ;;
+            -v|--verbose)
+                VERBOSE_MODE=true
                 shift
                 ;;
             -h|--help)
-                echo "Usage: $0 [-y|--yes] [--no-cache]"
+                echo "Usage: $0 [-y|--yes] [--no-cache] [--force] [-v|--verbose]"
                 echo ""
                 echo "Options:"
                 echo "  -y, --yes      Run without prompting for confirmation"
-                echo "  --no-cache     Build without using Docker cache"
+                echo "  --no-cache     Build without using Docker cache (implies --force)"
+                echo "  --force, -f    Rebuild even if image already exists"
+                echo "  -v, --verbose  Show detailed logging output"
                 echo "  -h, --help     Show this help message"
                 exit 0
                 ;;
@@ -162,6 +115,43 @@ validate_prerequisites() {
     log_info "docker-compose.yml found"
     
     log_success "All prerequisites validated"
+    log_action "Prerequisites validation" "succeeded"
+}
+
+# ============================================================================
+# CHECK EXISTING IMAGE (PRIOR-SAFE)
+# ============================================================================
+
+check_existing_image() {
+    local image_name="${DOCKER_IMAGE_NAME:-buzzmag-suitecrm}"
+    
+    log_step "Checking for existing Docker image..."
+    
+    if docker image inspect "$image_name" &>/dev/null; then
+        log_info "Docker image '$image_name' already exists"
+        
+        if [[ "$FORCE_BUILD" == "true" ]]; then
+            log_info "Force rebuild requested - proceeding with build"
+            log_action "Docker image '$image_name'" "rebuilding" "force requested"
+            return 1  # Proceed with build
+        fi
+        
+        # Show existing image info in verbose mode
+        if [[ "$VERBOSE_MODE" == "true" ]]; then
+            echo ""
+            echo -e "${BOLD}Existing Image:${NC}"
+            docker images "$image_name" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}" 2>/dev/null
+            echo ""
+        fi
+        
+        log_info "Skipping build - image already exists"
+        log_info "Use --force to rebuild, or --no-cache to rebuild without cache"
+        log_action "Docker image '$image_name'" "skipped" "already exists"
+        return 0  # Skip build
+    fi
+    
+    log_info "No existing image found - proceeding with build"
+    return 1  # Proceed with build
 }
 
 # ============================================================================
@@ -204,20 +194,29 @@ build_image() {
     echo "" >> "$LOG_FILE"
     echo "=== Build Output ===" >> "$LOG_FILE"
     
-    if docker compose build $build_args 2>&1 | tee -a "$LOG_FILE"; then
+    # Use pipefail to capture docker compose exit code, not tee's
+    set -o pipefail
+    local build_exit_code=0
+    docker compose build $build_args 2>&1 | tee -a "$LOG_FILE" || build_exit_code=$?
+    set +o pipefail
+    
+    if [[ $build_exit_code -eq 0 ]]; then
         local end_time
         end_time=$(date +%s)
         local duration=$((end_time - start_time))
         
         log_success "Docker image built successfully"
         log_info "Build time: ${duration} seconds"
+        log_action "Docker image build" "succeeded" "${duration}s"
         
         # Get image info
         get_image_info
         
         return 0
     else
-        log_error "Docker build failed. Check the log for details."
+        log_error "Docker build failed with exit code $build_exit_code"
+        log_error "Check the log for details: $LOG_FILE"
+        log_action "Docker image build" "failed" "exit code $build_exit_code"
         return 1
     fi
 }
@@ -234,7 +233,8 @@ get_image_info() {
     image_name=$(docker compose config --images 2>/dev/null | head -1)
     
     if [[ -z "$image_name" ]]; then
-        image_name="thebuzzmagazines-web"
+        # Fallback to DOCKER_IMAGE_NAME from env or default
+        image_name="${DOCKER_IMAGE_NAME:-suitecrm}"
     fi
     
     # Get image details
@@ -279,38 +279,45 @@ output_summary() {
 }
 
 # ============================================================================
-# FINALIZE LOGGING
-# ============================================================================
-
-finalize_log() {
-    {
-        echo ""
-        echo "============================================================================"
-        echo "BUILD COMPLETED"
-        echo "============================================================================"
-        echo "End Time: $(TZ='America/New_York' date)"
-        echo "============================================================================"
-    } >> "$LOG_FILE"
-}
-
-# ============================================================================
 # MAIN
 # ============================================================================
 
 main() {
     parse_args "$@"
     setup_logging
+    load_env_common
     
     echo ""
     echo "============================================================================"
     echo "Docker Build for SuiteCRM"
     echo "============================================================================"
-    echo "Log file: $LOG_FILE"
+    if [[ "$VERBOSE_MODE" == "true" ]]; then
+        echo "Log file: $LOG_FILE"
+    fi
     echo ""
     
     trap finalize_log EXIT
     
     validate_prerequisites
+    
+    # Check if image already exists (prior-safe behavior)
+    if check_existing_image; then
+        # Image exists and not forced - skip build
+        echo ""
+        echo "============================================================================"
+        echo "                    BUILD SKIPPED - Image Already Exists"
+        echo "============================================================================"
+        echo ""
+        echo "The Docker image already exists. To rebuild:"
+        echo "  - Use --force to rebuild with cache"
+        echo "  - Use --no-cache to rebuild from scratch"
+        echo ""
+        echo "Log file: $LOG_FILE"
+        echo "============================================================================"
+        log_success "Build skipped - image already exists"
+        exit 0
+    fi
+    
     confirm_build
     
     if build_image; then

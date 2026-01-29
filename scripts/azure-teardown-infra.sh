@@ -20,66 +20,59 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 ENV_FILE="${PROJECT_ROOT}/.env"
 LOGS_DIR="${PROJECT_ROOT}/logs"
 
+# Source common utilities (colors, logging, etc.)
+source "$SCRIPT_DIR/lib/common.sh"
+
 # Interactive mode (default: true)
 INTERACTIVE_MODE=true
 
 # Track results for summary
-RESULTS=()
+declare -a RESULTS
 
 # ============================================================================
-# LOGGING SETUP
+# CUSTOM LOGGING (extends common.sh to track RESULTS)
 # ============================================================================
+# Override log function to also track results for summary display
 
-setup_logging() {
-    mkdir -p "$LOGS_DIR"
-    local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y%m%d_%H%M%S")
-    LOG_FILE="${LOGS_DIR}/latest_${SCRIPT_NAME}_${timestamp}.log"
-    
-    # Strip "latest_" prefix from previous logs
-    for old_log in "${LOGS_DIR}"/latest_${SCRIPT_NAME}_*.log; do
-        if [[ -f "$old_log" && "$old_log" != "$LOG_FILE" ]]; then
-            local new_name="${old_log/latest_/}"
-            mv "$old_log" "$new_name" 2>/dev/null || true
-        fi
-    done
-    
-    touch "$LOG_FILE"
-    {
-        echo "============================================================================"
-        echo "Azure Teardown Log - Started at $(TZ='America/New_York' date)"
-        echo "Timezone: America/New_York (Eastern US)"
-        echo "Interactive Mode: $INTERACTIVE_MODE"
-        echo "============================================================================"
-        echo ""
-    } >> "$LOG_FILE"
-}
-
-# Log to both console and file
 log() {
     local level="$1"
     local message="$2"
     local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y-%m-%d %H:%M:%S %Z")
-    echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
+    timestamp=$(TZ="${LOGGING_TZ:-America/New_York}" date +"%Y-%m-%d %H:%M:%S %Z")
     
+    # Always write to log file
+    if [[ -n "$LOG_FILE" ]]; then
+        echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
+    fi
+    
+    # Track results for summary (always)
     case "$level" in
-        INFO)    echo -e "\033[0;34m[INFO]\033[0m $message" ;;
-        SUCCESS) echo -e "\033[0;32m[SUCCESS]\033[0m $message"; RESULTS+=("\033[0;32m✔\033[0m $message") ;;
-        WARN)    echo -e "\033[1;33m[WARN]\033[0m $message" ;;
-        ERROR)   echo -e "\033[0;31m[ERROR]\033[0m $message"; RESULTS+=("\033[0;31m✘\033[0m $message") ;;
-        STEP)    echo -e "\033[1;36m[STEP]\033[0m $message" ;;
-        SKIP)    echo -e "\033[1;33m[SKIP]\033[0m $message"; RESULTS+=("\033[1;33m○\033[0m $message (Not Found)") ;;
-        *)       echo "$message" ;;
+        SUCCESS) RESULTS+=("${GREEN}✔${NC} $message") ;;
+        ERROR)   RESULTS+=("${RED}✘${NC} $message") ;;
+        SKIP)    RESULTS+=("${YELLOW}○${NC} $message (Not Found)") ;;
     esac
+    
+    # Console output controlled by VERBOSE_MODE
+    if [[ "$VERBOSE_MODE" == "true" ]]; then
+        case "$level" in
+            INFO)    echo -e "${BLUE}[INFO]${NC} $message" ;;
+            SUCCESS) echo -e "${GREEN}[SUCCESS]${NC} $message" ;;
+            WARN)    echo -e "${YELLOW}[WARN]${NC} $message" ;;
+            ERROR)   echo -e "${RED}[ERROR]${NC} $message" ;;
+            STEP)    echo -e "${CYAN}[STEP]${NC} $message" ;;
+            SKIP)    echo -e "${YELLOW}[SKIP]${NC} $message" ;;
+            ACTION)  echo -e "$message" ;;
+            *)       echo "$message" ;;
+        esac
+    else
+        # Simple mode: only show errors, warnings, and ACTION results
+        case "$level" in
+            ERROR)   echo -e "${RED}[ERROR]${NC} $message" ;;
+            WARN)    echo -e "${YELLOW}[WARN]${NC} $message" ;;
+            ACTION)  echo -e "$message" ;;
+        esac
+    fi
 }
-
-log_info() { log "INFO" "$1"; }
-log_success() { log "SUCCESS" "$1"; }
-log_warn() { log "WARN" "$1"; }
-log_error() { log "ERROR" "$1"; }
-log_step() { log "STEP" "$1"; }
-log_skip() { log "SKIP" "$1"; }
 
 # ============================================================================
 # PARSE COMMAND LINE ARGUMENTS
@@ -92,12 +85,17 @@ parse_args() {
                 INTERACTIVE_MODE=false
                 shift
                 ;;
+            -v|--verbose)
+                VERBOSE_MODE=true
+                shift
+                ;;
             -h|--help)
-                echo "Usage: $0 [-y|--yes]"
+                echo "Usage: $0 [-y|--yes] [-v|--verbose]"
                 echo ""
                 echo "Options:"
-                echo "  -y, --yes    Run without prompting for confirmation"
-                echo "  -h, --help   Show this help message"
+                echo "  -y, --yes      Run without prompting for confirmation"
+                echo "  -v, --verbose  Show detailed logging output"
+                echo "  -h, --help     Show this help message"
                 exit 0
                 ;;
             *)
@@ -120,17 +118,8 @@ load_env() {
         exit 1
     fi
 
-    # Source .env file
-    set -a
-    source "$ENV_FILE"
-    set +a
-
-    # Expand nested variables from .env (they use ${AZURE_RESOURCE_PREFIX})
-    eval "AZURE_RESOURCE_GROUP=$AZURE_RESOURCE_GROUP"
-    eval "AZURE_PROVISION_MYSQL_SERVER_NAME=$AZURE_PROVISION_MYSQL_SERVER_NAME"
-    eval "AZURE_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME"
-    eval "AZURE_ACR_NAME=$AZURE_ACR_NAME"
-    eval "AZURE_CONTAINER_APP_ENV=$AZURE_CONTAINER_APP_ENV"
+    # Use common environment loading (handles all variable expansion)
+    load_env_common
     
     log_info "Resource Group: $AZURE_RESOURCE_GROUP"
     log_info "MySQL Server: $AZURE_PROVISION_MYSQL_SERVER_NAME"
@@ -160,9 +149,9 @@ validate_prerequisites() {
 confirm_teardown() {
     if [[ "$INTERACTIVE_MODE" == "true" ]]; then
         echo ""
-        echo -e "\033[1;31m========================================\033[0m"
-        echo -e "\033[1;31m           !!! WARNING !!!              \033[0m"
-        echo -e "\033[1;31m========================================\033[0m"
+        echo -e "${RED}${BOLD}========================================${NC}"
+        echo -e "${RED}${BOLD}           !!! WARNING !!!              ${NC}"
+        echo -e "${RED}${BOLD}========================================${NC}"
         echo ""
         echo "This will PERMANENTLY DELETE the following Azure resources:"
         echo ""
@@ -199,11 +188,14 @@ delete_mysql_server() {
             --name "$AZURE_PROVISION_MYSQL_SERVER_NAME" \
             --yes 2>&1 | tee -a "$LOG_FILE"; then
             log_success "MySQL Server '$AZURE_PROVISION_MYSQL_SERVER_NAME' deleted"
+            log_action "MySQL Server '$AZURE_PROVISION_MYSQL_SERVER_NAME'" "succeeded" "deleted"
         else
             log_error "Failed to delete MySQL Server '$AZURE_PROVISION_MYSQL_SERVER_NAME'"
+            log_action "MySQL Server '$AZURE_PROVISION_MYSQL_SERVER_NAME'" "failed"
         fi
     else
         log_skip "MySQL Server '$AZURE_PROVISION_MYSQL_SERVER_NAME' does not exist"
+        log_action "MySQL Server '$AZURE_PROVISION_MYSQL_SERVER_NAME'" "skipped" "not found"
     fi
 }
 
@@ -223,11 +215,14 @@ delete_storage_account() {
             --name "$AZURE_STORAGE_ACCOUNT_NAME" \
             --yes 2>&1 | tee -a "$LOG_FILE"; then
             log_success "Storage Account '$AZURE_STORAGE_ACCOUNT_NAME' deleted"
+            log_action "Storage Account '$AZURE_STORAGE_ACCOUNT_NAME'" "succeeded" "deleted"
         else
             log_error "Failed to delete Storage Account '$AZURE_STORAGE_ACCOUNT_NAME'"
+            log_action "Storage Account '$AZURE_STORAGE_ACCOUNT_NAME'" "failed"
         fi
     else
         log_skip "Storage Account '$AZURE_STORAGE_ACCOUNT_NAME' does not exist"
+        log_action "Storage Account '$AZURE_STORAGE_ACCOUNT_NAME'" "skipped" "not found"
     fi
 }
 
@@ -247,11 +242,14 @@ delete_container_registry() {
             --name "$AZURE_ACR_NAME" \
             --yes 2>&1 | tee -a "$LOG_FILE"; then
             log_success "Container Registry '$AZURE_ACR_NAME' deleted"
+            log_action "Container Registry '$AZURE_ACR_NAME'" "succeeded" "deleted"
         else
             log_error "Failed to delete Container Registry '$AZURE_ACR_NAME'"
+            log_action "Container Registry '$AZURE_ACR_NAME'" "failed"
         fi
     else
         log_skip "Container Registry '$AZURE_ACR_NAME' does not exist"
+        log_action "Container Registry '$AZURE_ACR_NAME'" "skipped" "not found"
     fi
 }
 
@@ -269,11 +267,14 @@ delete_resource_group() {
             --name "$AZURE_RESOURCE_GROUP" \
             --yes 2>&1 | tee -a "$LOG_FILE"; then
             log_success "Resource Group '$AZURE_RESOURCE_GROUP' and all contents deleted"
+            log_action "Resource Group '$AZURE_RESOURCE_GROUP'" "succeeded" "deleted"
         else
             log_error "Failed to delete Resource Group '$AZURE_RESOURCE_GROUP'"
+            log_action "Resource Group '$AZURE_RESOURCE_GROUP'" "failed"
         fi
     else
         log_skip "Resource Group '$AZURE_RESOURCE_GROUP' does not exist"
+        log_action "Resource Group '$AZURE_RESOURCE_GROUP'" "skipped" "not found"
     fi
 }
 
@@ -293,21 +294,6 @@ output_summary() {
     echo ""
     echo "Log file: $LOG_FILE"
     echo ""
-}
-
-# ============================================================================
-# FINALIZE LOGGING
-# ============================================================================
-
-finalize_log() {
-    {
-        echo ""
-        echo "============================================================================"
-        echo "SCRIPT COMPLETED"
-        echo "============================================================================"
-        echo "End Time: $(TZ='America/New_York' date)"
-        echo "============================================================================"
-    } >> "$LOG_FILE"
 }
 
 # ============================================================================

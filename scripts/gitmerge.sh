@@ -12,7 +12,7 @@ fi
 
 NEW_BRANCH=$1
 COMMIT_MSG=$2
-TIMESTAMP=$(TZ="America/New_York" date +%Y%m%d-%H%M%S)
+TIMESTAMP=$(TZ="${LOGGING_TZ:-America/New_York}" date +%Y%m%d-%H%M%S)
 
 # 1. Get current branch name
 ORIGINAL_BRANCH=$(git branch --show-current)

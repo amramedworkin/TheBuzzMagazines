@@ -1,6 +1,6 @@
 ---
 description: Environment variable naming conventions and documentation requirements
-globs: ["**/.env*", "**/validate-env.sh", "docs/ENV_GUIDE.md"]
+globs: ["**/.env*", "**/env-validate.sh", "docs/ENV_GUIDE.md"]
 ---
 
 # Environment Variables Standards
@@ -31,7 +31,7 @@ Use the following prefixes for environment variables:
 ## When Adding/Modifying Environment Variables
 
 1. **Update `.env.example`** - Add the new variable with placeholder or default value
-2. **Update `scripts/validate-env.sh`** - Add validation logic for the new variable
+2. **Update `scripts/env-validate.sh`** - Add validation logic for the new variable
 3. **Update `docs/ENV_GUIDE.md`** - Document the variable in the appropriate section:
    - Add to the correct group table
    - Include: Variable name, Required status, Description, Default, Example
@@ -40,6 +40,6 @@ Use the following prefixes for environment variables:
 ## Checklist
 
 - [ ] Add to `.env.example` with placeholder
-- [ ] Add to `scripts/validate-env.sh` (get_env_value, validation function)
+- [ ] Add to `scripts/env-validate.sh` (get_env_value, validation function)
 - [ ] Add to `docs/ENV_GUIDE.md` (correct section table)
 - [ ] Update any scripts that should use the new variable

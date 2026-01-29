@@ -5,11 +5,15 @@
 # Mounts Azure File shares to local directories for Docker bind mounts
 # Reads configuration from .env file
 #
+# NOTE: This script uses sudo internally for privileged operations.
+#       You will be prompted for your password when needed.
+#
 # Usage:
-#   sudo ./azure-mount-fileshare-to-local.sh              # Interactive mode, mount shares
-#   sudo ./azure-mount-fileshare-to-local.sh -y           # Non-interactive mode
-#   sudo ./azure-mount-fileshare-to-local.sh unmount      # Unmount shares
-#   sudo ./azure-mount-fileshare-to-local.sh unmount -y   # Unmount without prompts
+#   ./azure-mount-fileshare-to-local.sh              # Interactive mode, mount shares
+#   ./azure-mount-fileshare-to-local.sh -y           # Non-interactive mode
+#   ./azure-mount-fileshare-to-local.sh unmount      # Unmount shares
+#   ./azure-mount-fileshare-to-local.sh unmount -y   # Unmount without prompts
+#   ./azure-mount-fileshare-to-local.sh status       # Check mount status (no sudo)
 # ============================================================================
 
 # ============================================================================
@@ -23,6 +27,9 @@ ENV_FILE="${PROJECT_ROOT}/.env"
 SECRETS_FILE="${PROJECT_ROOT}/.azure-secrets"
 LOGS_DIR="${PROJECT_ROOT}/logs"
 
+# Source common utilities (colors, logging, etc.)
+source "$SCRIPT_DIR/lib/common.sh"
+
 # Interactive mode (default: true, requires user confirmation at each step)
 INTERACTIVE_MODE=true
 
@@ -32,76 +39,6 @@ FAILED_STEP=""
 
 # Action to perform
 ACTION="mount"
-
-# ============================================================================
-# LOGGING SETUP
-# ============================================================================
-
-setup_logging() {
-    # Ensure logs directory exists
-    mkdir -p "$LOGS_DIR"
-    
-    # Generate timestamp in Eastern US timezone
-    local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y%m%d_%H%M%S")
-    
-    # New log filename
-    LOG_FILE="${LOGS_DIR}/latest_${SCRIPT_NAME}_${timestamp}.log"
-    
-    # Strip "latest_" prefix from any previous log files for this script
-    for old_log in "${LOGS_DIR}"/latest_${SCRIPT_NAME}_*.log; do
-        if [[ -f "$old_log" && "$old_log" != "$LOG_FILE" ]]; then
-            local new_name="${old_log/latest_/}"
-            mv "$old_log" "$new_name" 2>/dev/null || true
-        fi
-    done
-    
-    # Create the new log file
-    touch "$LOG_FILE"
-    
-    # Log header
-    {
-        echo "============================================================================"
-        echo "Azure Mount Log - Started at $(TZ='America/New_York' date)"
-        echo "Timezone: America/New_York (Eastern US)"
-        echo "Action: $ACTION"
-        echo "Interactive Mode: $INTERACTIVE_MODE"
-        echo "============================================================================"
-        echo ""
-    } >> "$LOG_FILE"
-}
-
-# Log to both console and file
-log() {
-    local level="$1"
-    local message="$2"
-    local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y-%m-%d %H:%M:%S %Z")
-    local log_line="[$timestamp] [$level] $message"
-    
-    echo "$log_line" >> "$LOG_FILE"
-    
-    # Console output with colors
-    case "$level" in
-        INFO)    echo -e "\033[0;34m[INFO]\033[0m $message" ;;
-        SUCCESS) echo -e "\033[0;32m[SUCCESS]\033[0m $message" ;;
-        WARN)    echo -e "\033[1;33m[WARN]\033[0m $message" ;;
-        ERROR)   echo -e "\033[0;31m[ERROR]\033[0m $message" ;;
-        STEP)    echo -e "\033[1;36m[STEP]\033[0m $message" ;;
-        *)       echo "$message" ;;
-    esac
-}
-
-log_info() { log "INFO" "$1"; }
-log_success() { log "SUCCESS" "$1"; }
-log_warn() { log "WARN" "$1"; }
-log_error() { log "ERROR" "$1"; }
-log_step() { log "STEP" "$1"; }
-
-# Log command output (to file only)
-log_cmd_output() {
-    echo "$1" >> "$LOG_FILE"
-}
 
 # ============================================================================
 # ERROR HANDLING
@@ -127,7 +64,7 @@ handle_error() {
         echo "Failed Step: $step"
         echo "Exit Code: $exit_code"
         echo "Error Message: $error_msg"
-        echo "Timestamp: $(TZ='America/New_York' date)"
+        echo "Timestamp: $(TZ="${LOGGING_TZ:-America/New_York}" date)"
         echo ""
         echo "Possible causes:"
     } >> "$LOG_FILE"
@@ -183,7 +120,7 @@ confirm_step() {
     
     if [[ "$INTERACTIVE_MODE" == "true" ]]; then
         echo ""
-        echo -e "\033[1;33m>>> Next Step: $step_name\033[0m"
+        echo -e "${YELLOW}>>> Next Step: $step_name${NC}"
         echo "    $step_description"
         echo ""
         read -p "    Press Enter to continue, or Ctrl+C to abort... " -r
@@ -204,16 +141,30 @@ parse_args() {
                 INTERACTIVE_MODE=false
                 shift
                 ;;
+            -v|--verbose)
+                VERBOSE_MODE=true
+                shift
+                ;;
             -h|--help)
-                echo "Usage: sudo $0 [mount|unmount] [-y|--yes]"
+                echo "Usage: $0 [mount|unmount|status] [-y|--yes] [-v|--verbose]"
                 echo ""
                 echo "Commands:"
-                echo "  mount      Mount Azure File shares (default)"
-                echo "  unmount    Unmount Azure File shares"
+                echo "  mount      Mount Azure File shares (default, prompts for sudo)"
+                echo "  unmount    Unmount Azure File shares (prompts for sudo)"
+                echo "  status     Check current mount status (no sudo needed)"
                 echo ""
                 echo "Options:"
-                echo "  -y, --yes    Run without prompting for confirmation at each step"
-                echo "  -h, --help   Show this help message"
+                echo "  -y, --yes      Run without prompting for confirmation at each step"
+                echo "  -v, --verbose  Show detailed logging output"
+                echo "  -h, --help     Show this help message"
+                echo ""
+                echo "Note: This script uses sudo internally for privileged operations."
+                echo "      You will be prompted for your password when needed."
+                echo ""
+                echo "Examples:"
+                echo "  $0 -y              # Mount all shares non-interactively"
+                echo "  $0 status          # Check what's mounted"
+                echo "  $0 unmount -y      # Unmount all shares"
                 exit 0
                 ;;
             mount)
@@ -222,6 +173,10 @@ parse_args() {
                 ;;
             unmount)
                 ACTION="unmount"
+                shift
+                ;;
+            status)
+                ACTION="status"
                 shift
                 ;;
             *)
@@ -242,10 +197,10 @@ validate_env_file() {
     
     log_info "Running environment validation..."
     
-    local validate_script="${SCRIPT_DIR}/validate-env.sh"
+    local validate_script="${SCRIPT_DIR}/env-validate.sh"
     
     if [[ ! -f "$validate_script" ]]; then
-        handle_error "validate_env_file" "validate-env.sh not found at $validate_script"
+        handle_error "validate_env_file" "env-validate.sh not found at $validate_script"
     fi
     
     # Run full validation for logging purposes (capture all output)
@@ -285,16 +240,12 @@ load_env() {
 
     log_info "Loading configuration from $ENV_FILE"
     
-    set -a
-    source "$ENV_FILE"
-    set +a
-
-    # Expand nested variables from .env (they use ${AZURE_RESOURCE_PREFIX})
-    # These are evaluated here because bash doesn't expand nested vars on source
-    eval "AZURE_STORAGE_ACCOUNT_NAME=$AZURE_STORAGE_ACCOUNT_NAME"
-    eval "AZURE_RESOURCE_GROUP=$AZURE_RESOURCE_GROUP"
+    # Use common environment loading (handles all variable expansion)
+    load_env_common
+    
     MOUNT_BASE="${AZURE_FILES_MOUNT_BASE}"
 
+    log_info "Global prefix: $GLOBAL_PREFIX"
     log_info "Storage account: $AZURE_STORAGE_ACCOUNT_NAME"
     log_info "Mount base: $MOUNT_BASE"
     
@@ -341,7 +292,7 @@ get_storage_key() {
 # ============================================================================
 
 check_prerequisites() {
-    confirm_step "Check Prerequisites" "Verify cifs-utils installation and root privileges"
+    confirm_step "Check Prerequisites" "Verify cifs-utils installation and sudo access"
     
     log_info "Checking for cifs-utils..."
     if ! command -v mount.cifs &> /dev/null; then
@@ -349,11 +300,12 @@ check_prerequisites() {
     fi
     log_success "cifs-utils is installed"
 
-    log_info "Checking root privileges..."
-    if [[ $EUID -ne 0 ]]; then
-        handle_error "check_prerequisites" "This script must be run with sudo. Run: sudo $0"
+    log_info "Validating sudo access..."
+    # This will prompt for password if needed and cache credentials
+    if ! sudo -v 2>/dev/null; then
+        handle_error "check_prerequisites" "Unable to obtain sudo privileges. Please ensure you have sudo access."
     fi
-    log_success "Running with root privileges"
+    log_success "Sudo access confirmed"
 
     log_success "Prerequisites OK"
 }
@@ -365,36 +317,65 @@ check_prerequisites() {
 mount_shares() {
     confirm_step "Mount Shares" "Create mount points and mount Azure File shares"
     
-    local shares=("upload" "custom" "cache")
+    local shares=("${AZURE_FILES_SHARE_UPLOAD}" "${AZURE_FILES_SHARE_CUSTOM}" "${AZURE_FILES_SHARE_CACHE}")
     local failed_mounts=0
+    local skipped_mounts=0
+    local stale_cleared=0
     
     for share in "${shares[@]}"; do
         local mount_point="${MOUNT_BASE}/${share}"
-        local share_name="suitecrm-${share}"
+        local share_name="${AZURE_FILES_SHARE_PREFIX}-${share}"
         local unc_path="//${AZURE_STORAGE_ACCOUNT_NAME}.file.core.windows.net/${share_name}"
 
         log_info "Processing share: $share_name -> $mount_point"
 
-        # Create mount point
+        # Check for stale mount first (in /proc/mounts but not accessible)
+        if grep -q " ${mount_point} " /proc/mounts 2>/dev/null; then
+            if ! stat "$mount_point" &>/dev/null; then
+                log_warn "  Stale mount detected at $mount_point - clearing..."
+                if sudo umount -l "$mount_point" 2>&1; then
+                    log_success "  Cleared stale mount"
+                    ((stale_cleared++))
+                    # Small delay to let kernel clean up
+                    sleep 1
+                else
+                    log_error "  Failed to clear stale mount - cannot proceed"
+                    ((failed_mounts++))
+                    continue
+                fi
+            else
+                # Mount exists and is accessible - check if it's the right share
+                log_info "  $mount_point is already mounted - skipping"
+                log_action "Mount $mount_point" "skipped" "already mounted"
+                ((skipped_mounts++))
+                continue
+            fi
+        fi
+
+        # Create mount point (needs sudo for /mnt)
         if [[ ! -d "$mount_point" ]]; then
             log_info "  Creating mount point directory..."
-            if ! mkdir -p "$mount_point" 2>&1; then
+            local mkdir_output
+            if ! mkdir_output=$(sudo mkdir -p "$mount_point" 2>&1); then
                 log_error "  Failed to create mount point: $mount_point"
+                log_cmd_output "  mkdir error: $mkdir_output"
                 ((failed_mounts++))
                 continue
             fi
         fi
 
-        # Check if already mounted
+        # Check if already mounted (shouldn't happen after stale check, but just in case)
         if mountpoint -q "$mount_point" 2>/dev/null; then
-            log_warn "  $mount_point is already mounted - skipping"
+            log_info "  $mount_point is already mounted - skipping"
+            log_action "Mount $mount_point" "skipped" "already mounted"
+            ((skipped_mounts++))
             continue
         fi
 
-        # Mount the share
+        # Mount the share (needs sudo)
         log_info "  Mounting $share_name..."
         local mount_output
-        if ! mount_output=$(mount -t cifs "$unc_path" "$mount_point" \
+        if ! mount_output=$(sudo mount -t cifs "$unc_path" "$mount_point" \
             -o "vers=3.0,username=${AZURE_STORAGE_ACCOUNT_NAME},password=${AZURE_STORAGE_KEY},dir_mode=0777,file_mode=0777,serverino,nosharesock,actimeo=30" 2>&1); then
             log_error "  Failed to mount $share_name"
             log_cmd_output "Mount error: $mount_output"
@@ -403,10 +384,19 @@ mount_shares() {
         fi
         log_cmd_output "Mount output: $mount_output"
         log_success "  Mounted $share_name"
+        log_action "Mount $mount_point" "succeeded"
     done
+
+    if [[ $stale_cleared -gt 0 ]]; then
+        log_info "$stale_cleared stale mount(s) were cleared"
+    fi
 
     if [[ $failed_mounts -gt 0 ]]; then
         handle_error "mount_shares" "$failed_mounts share(s) failed to mount"
+    fi
+    
+    if [[ $skipped_mounts -gt 0 ]]; then
+        log_info "$skipped_mounts share(s) were already mounted"
     fi
     
     log_success "All shares mounted successfully"
@@ -419,42 +409,41 @@ mount_shares() {
 create_fstab_entries() {
     confirm_step "Create fstab Entries" "Add persistent mount entries to /etc/fstab"
     
-    local credentials_file="/etc/azure-suitecrm-credentials"
+    local credentials_file="${AZURE_FILES_CREDENTIALS_FILE}"
     local fstab_marker="# Azure Files - SuiteCRM"
     
     # Check if entries already exist
     if grep -q "$fstab_marker" /etc/fstab 2>/dev/null; then
-        log_warn "fstab entries already exist - skipping"
+        log_info "fstab entries already exist - skipping"
         return 0
     fi
     
-    # Create credentials file
+    # Create credentials file (needs sudo for /etc)
     log_info "Creating credentials file at $credentials_file..."
-    if ! cat > "$credentials_file" << EOF
+    if ! sudo tee "$credentials_file" > /dev/null << EOF
 username=${AZURE_STORAGE_ACCOUNT_NAME}
 password=${AZURE_STORAGE_KEY}
 EOF
     then
         handle_error "create_fstab" "Failed to create credentials file"
     fi
-    chmod 600 "$credentials_file"
+    sudo chmod 600 "$credentials_file"
     log_success "Credentials file created"
 
-    # Add entries to fstab
+    # Add entries to fstab (needs sudo)
     log_info "Adding entries to /etc/fstab..."
-    local shares=("upload" "custom" "cache")
+    local shares=("${AZURE_FILES_SHARE_UPLOAD}" "${AZURE_FILES_SHARE_CUSTOM}" "${AZURE_FILES_SHARE_CACHE}")
     
-    {
-        echo ""
-        echo "$fstab_marker"
-    } >> /etc/fstab
+    # Add marker
+    echo "" | sudo tee -a /etc/fstab > /dev/null
+    echo "$fstab_marker" | sudo tee -a /etc/fstab > /dev/null
     
     for share in "${shares[@]}"; do
         local mount_point="${MOUNT_BASE}/${share}"
-        local share_name="suitecrm-${share}"
+        local share_name="${AZURE_FILES_SHARE_PREFIX}-${share}"
         local unc_path="//${AZURE_STORAGE_ACCOUNT_NAME}.file.core.windows.net/${share_name}"
         
-        echo "${unc_path} ${mount_point} cifs vers=3.0,credentials=${credentials_file},dir_mode=0777,file_mode=0777,serverino,nosharesock,actimeo=30,nofail 0 0" >> /etc/fstab
+        echo "${unc_path} ${mount_point} cifs vers=3.0,credentials=${credentials_file},dir_mode=0777,file_mode=0777,serverino,nosharesock,actimeo=30,nofail 0 0" | sudo tee -a /etc/fstab > /dev/null
         log_info "  Added: $share_name -> $mount_point"
     done
 
@@ -465,32 +454,180 @@ EOF
 # UNMOUNT SHARES
 # ============================================================================
 
+# Check if a mount point is stale (exists in /proc/mounts but inaccessible)
+is_stale_mount() {
+    local mount_point="$1"
+    
+    # Check if it's in /proc/mounts
+    if grep -q " ${mount_point} " /proc/mounts 2>/dev/null; then
+        # It's mounted, check if accessible
+        if ! stat "$mount_point" &>/dev/null; then
+            # Can't access it - stale mount
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Check if mount point is in /proc/mounts (regardless of accessibility)
+is_in_proc_mounts() {
+    local mount_point="$1"
+    grep -q " ${mount_point} " /proc/mounts 2>/dev/null
+}
+
 unmount_shares() {
     confirm_step "Unmount Shares" "Unmount Azure File shares from local system"
     
-    local shares=("upload" "custom" "cache")
+    local shares=("${AZURE_FILES_SHARE_UPLOAD}" "${AZURE_FILES_SHARE_CUSTOM}" "${AZURE_FILES_SHARE_CACHE}")
     local failed_unmounts=0
+    local success_unmounts=0
     
     for share in "${shares[@]}"; do
         local mount_point="${MOUNT_BASE}/${share}"
         
-        if mountpoint -q "$mount_point" 2>/dev/null; then
-            log_info "Unmounting $mount_point..."
-            if ! umount "$mount_point" 2>&1; then
-                log_error "Failed to unmount $mount_point"
-                ((failed_unmounts++))
+        # Check for stale mount first (shows in /proc/mounts but not accessible)
+        if is_stale_mount "$mount_point"; then
+            log_warn "Stale mount detected at $mount_point - using lazy unmount"
+            if sudo umount -l "$mount_point" 2>&1; then
+                log_success "Lazy unmounted stale mount: $mount_point"
+                ((success_unmounts++))
             else
+                log_error "Failed to lazy unmount stale mount: $mount_point"
+                # Try force unmount as last resort
+                log_info "Attempting force unmount..."
+                if sudo umount -f "$mount_point" 2>&1; then
+                    log_success "Force unmounted: $mount_point"
+                    ((success_unmounts++))
+                else
+                    log_error "Force unmount also failed: $mount_point"
+                    ((failed_unmounts++))
+                fi
+            fi
+        # Check for normal mount (accessible)
+        elif mountpoint -q "$mount_point" 2>/dev/null; then
+            log_info "Unmounting $mount_point..."
+            if sudo umount "$mount_point" 2>&1; then
                 log_success "Unmounted $mount_point"
+                ((success_unmounts++))
+            else
+                # Try lazy unmount if regular fails
+                log_warn "Regular unmount failed, trying lazy unmount..."
+                if sudo umount -l "$mount_point" 2>&1; then
+                    log_success "Lazy unmounted: $mount_point"
+                    ((success_unmounts++))
+                else
+                    log_error "Failed to unmount $mount_point"
+                    ((failed_unmounts++))
+                fi
+            fi
+        # Check if it's in /proc/mounts but mountpoint check failed (another stale case)
+        elif is_in_proc_mounts "$mount_point"; then
+            log_warn "Mount in /proc/mounts but not accessible: $mount_point - using lazy unmount"
+            if sudo umount -l "$mount_point" 2>&1; then
+                log_success "Lazy unmounted: $mount_point"
+                ((success_unmounts++))
+            else
+                log_error "Failed to lazy unmount: $mount_point"
+                ((failed_unmounts++))
             fi
         else
-            log_warn "$mount_point is not mounted - skipping"
+            log_info "$mount_point is not mounted - skipping"
+            log_action "Unmount $mount_point" "skipped" "not mounted"
         fi
     done
     
+    echo ""
+    log_info "Unmount summary: $success_unmounts succeeded, $failed_unmounts failed"
+    
     if [[ $failed_unmounts -gt 0 ]]; then
         log_warn "$failed_unmounts share(s) failed to unmount"
+        log_info "You may need to reboot to clear stale mounts"
     else
-        log_success "All shares unmounted successfully"
+        log_success "All mounted shares unmounted successfully"
+    fi
+}
+
+# ============================================================================
+# CHECK MOUNT STATUS (no sudo required)
+# ============================================================================
+
+check_mount_status() {
+    echo ""
+    echo "============================================================================"
+    echo "Azure Files Mount Status"
+    echo "============================================================================"
+    echo ""
+    
+    local shares=("${AZURE_FILES_SHARE_UPLOAD}" "${AZURE_FILES_SHARE_CUSTOM}" "${AZURE_FILES_SHARE_CACHE}")
+    local mounted_count=0
+    local not_mounted_count=0
+    local missing_dir_count=0
+    local stale_count=0
+    
+    echo "Mount Base: ${MOUNT_BASE}"
+    echo ""
+    echo "  Share                      Mount Point                        Status"
+    echo "  -------------------------- ---------------------------------- --------"
+    
+    for share in "${shares[@]}"; do
+        local mount_point="${MOUNT_BASE}/${share}"
+        local share_name="${AZURE_FILES_SHARE_PREFIX}-${share}"
+        local status
+        local status_color
+        
+        # Check if in /proc/mounts first
+        if grep -q " ${mount_point} " /proc/mounts 2>/dev/null; then
+            # It's mounted - check if accessible
+            if stat "$mount_point" &>/dev/null; then
+                status="MOUNTED"
+                status_color="${GREEN}"
+                ((mounted_count++))
+            else
+                status="STALE"
+                status_color="${RED}"
+                ((stale_count++))
+            fi
+        elif [[ ! -d "$mount_point" ]]; then
+            status="NO DIR"
+            status_color="${YELLOW}"
+            ((missing_dir_count++))
+        else
+            status="NOT MOUNTED"
+            status_color="${YELLOW}"
+            ((not_mounted_count++))
+        fi
+        
+        printf "  %-26s %-34s ${status_color}%s${NC}\n" "$share_name" "$mount_point" "$status"
+    done
+    
+    echo "  -------------------------- ---------------------------------- --------"
+    echo ""
+    
+    # Summary
+    local total=$((mounted_count + not_mounted_count + missing_dir_count + stale_count))
+    echo -e "Summary: ${GREEN}$mounted_count mounted${NC}, ${YELLOW}$not_mounted_count not mounted${NC}, ${YELLOW}$missing_dir_count no dir${NC}, ${RED}$stale_count stale${NC}"
+    echo ""
+    
+    # Recommendations
+    if [[ $stale_count -gt 0 ]]; then
+        echo -e "${RED}STALE MOUNTS DETECTED!${NC}"
+        echo "Stale mounts block new mounts. Run unmount first:"
+        echo "  ./scripts/azure-mount-fileshare-to-local.sh unmount"
+        echo ""
+    fi
+    
+    if [[ $not_mounted_count -gt 0 || $missing_dir_count -gt 0 ]]; then
+        echo "To mount shares:"
+        echo "  ./scripts/azure-mount-fileshare-to-local.sh -y"
+        echo ""
+    fi
+    
+    if [[ $mounted_count -eq $total && $stale_count -eq 0 ]]; then
+        echo -e "${GREEN}✓ All shares are mounted and ready${NC}"
+        echo ""
+        return 0
+    else
+        return 1
     fi
 }
 
@@ -500,7 +637,7 @@ unmount_shares() {
 
 output_status() {
     local summary
-    local shares=("upload" "custom" "cache")
+    local shares=("${AZURE_FILES_SHARE_UPLOAD}" "${AZURE_FILES_SHARE_CUSTOM}" "${AZURE_FILES_SHARE_CACHE}")
     
     if [[ "$ACTION" == "mount" ]]; then
         summary=$(cat << EOF
@@ -513,7 +650,7 @@ Mount points:
 EOF
 )
         for share in "${shares[@]}"; do
-            summary+=$'\n'"  ${MOUNT_BASE}/${share} -> suitecrm-${share}"
+            summary+=$'\n'"  ${MOUNT_BASE}/${share} -> ${AZURE_FILES_SHARE_PREFIX}-${share}"
         done
         
         summary+=$(cat << EOF
@@ -560,26 +697,6 @@ EOF
 }
 
 # ============================================================================
-# FINALIZE LOGGING
-# ============================================================================
-
-finalize_log() {
-    {
-        echo ""
-        echo "============================================================================"
-        echo "SCRIPT COMPLETED"
-        echo "============================================================================"
-        echo "End Time: $(TZ='America/New_York' date)"
-        echo "Action: $ACTION"
-        echo "Success: $SCRIPT_SUCCESS"
-        if [[ "$SCRIPT_SUCCESS" == "false" ]]; then
-            echo "Failed Step: $FAILED_STEP"
-        fi
-        echo "============================================================================"
-    } >> "$LOG_FILE"
-}
-
-# ============================================================================
 # MAIN
 # ============================================================================
 
@@ -608,6 +725,14 @@ main() {
 
     # Load environment first
     load_env
+    
+    # Status check doesn't need validation or sudo
+    if [[ "$ACTION" == "status" ]]; then
+        check_mount_status
+        exit $?
+    fi
+    
+    # Other actions need full validation
     validate_env_file
     
     case "$ACTION" in

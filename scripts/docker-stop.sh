@@ -17,73 +17,17 @@
 SCRIPT_NAME="docker-stop"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+ENV_FILE="${PROJECT_ROOT}/.env"
 LOGS_DIR="${PROJECT_ROOT}/logs"
+
+# Source common utilities (colors, logging, etc.)
+source "$SCRIPT_DIR/lib/common.sh"
 
 # Options
 INTERACTIVE_MODE=true
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-CYAN='\033[1;36m'
-BOLD='\033[1m'
-NC='\033[0m'
-
-# Container name from docker-compose.yml
-CONTAINER_NAME="suitecrm-web"
-
-# ============================================================================
-# LOGGING SETUP
-# ============================================================================
-
-setup_logging() {
-    mkdir -p "$LOGS_DIR"
-    local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y%m%d_%H%M%S")
-    LOG_FILE="${LOGS_DIR}/latest_${SCRIPT_NAME}_${timestamp}.log"
-    
-    # Strip "latest_" prefix from previous logs
-    for old_log in "${LOGS_DIR}"/latest_${SCRIPT_NAME}_*.log; do
-        if [[ -f "$old_log" && "$old_log" != "$LOG_FILE" ]]; then
-            local new_name="${old_log/latest_/}"
-            mv "$old_log" "$new_name" 2>/dev/null || true
-        fi
-    done
-    
-    touch "$LOG_FILE"
-    {
-        echo "============================================================================"
-        echo "Docker Stop Log - $(TZ='America/New_York' date)"
-        echo "Timezone: America/New_York (Eastern US)"
-        echo "============================================================================"
-        echo ""
-    } >> "$LOG_FILE"
-}
-
-log() {
-    local level="$1"
-    local message="$2"
-    local timestamp
-    timestamp=$(TZ="America/New_York" date +"%Y-%m-%d %H:%M:%S %Z")
-    echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
-    
-    case "$level" in
-        INFO)    echo -e "${BLUE}[INFO]${NC} $message" ;;
-        SUCCESS) echo -e "${GREEN}[SUCCESS]${NC} $message" ;;
-        WARN)    echo -e "${YELLOW}[WARN]${NC} $message" ;;
-        ERROR)   echo -e "${RED}[ERROR]${NC} $message" ;;
-        STEP)    echo -e "${CYAN}[STEP]${NC} $message" ;;
-        *)       echo "$message" ;;
-    esac
-}
-
-log_info() { log "INFO" "$1"; }
-log_success() { log "SUCCESS" "$1"; }
-log_warn() { log "WARN" "$1"; }
-log_error() { log "ERROR" "$1"; }
-log_step() { log "STEP" "$1"; }
+# Container name - will be set from .env
+CONTAINER_NAME=""
 
 # ============================================================================
 # PARSE COMMAND LINE ARGUMENTS
@@ -96,11 +40,16 @@ parse_args() {
                 INTERACTIVE_MODE=false
                 shift
                 ;;
+            -v|--verbose)
+                VERBOSE_MODE=true
+                shift
+                ;;
             -h|--help)
-                echo "Usage: $0 [-y|--yes]"
+                echo "Usage: $0 [-y|--yes] [-v|--verbose]"
                 echo ""
                 echo "Options:"
                 echo "  -y, --yes      Run without prompting for confirmation"
+                echo "  -v, --verbose  Show detailed logging output"
                 echo "  -h, --help     Show this help message"
                 exit 0
                 ;;
@@ -110,6 +59,15 @@ parse_args() {
                 ;;
         esac
     done
+}
+
+# ============================================================================
+# LOAD ENVIRONMENT
+# ============================================================================
+
+load_env() {
+    load_env_common
+    CONTAINER_NAME="${DOCKER_CONTAINER_NAME:-suitecrm-web}"
 }
 
 # ============================================================================
@@ -229,21 +187,6 @@ output_summary() {
 }
 
 # ============================================================================
-# FINALIZE LOGGING
-# ============================================================================
-
-finalize_log() {
-    {
-        echo ""
-        echo "============================================================================"
-        echo "STOP COMPLETED"
-        echo "============================================================================"
-        echo "End Time: $(TZ='America/New_York' date)"
-        echo "============================================================================"
-    } >> "$LOG_FILE"
-}
-
-# ============================================================================
 # MAIN
 # ============================================================================
 
@@ -259,11 +202,13 @@ main() {
     
     trap finalize_log EXIT
     
+    load_env
     check_docker
     
     if ! check_container_status; then
         echo ""
         echo "Container is not running. Nothing to stop."
+        log_action "Container '$CONTAINER_NAME'" "skipped" "not running"
         exit 0
     fi
     
@@ -273,8 +218,10 @@ main() {
         verify_stopped
         output_summary
         log_success "SuiteCRM stopped successfully!"
+        log_action "Container '$CONTAINER_NAME' stop" "succeeded"
     else
         log_error "Failed to stop SuiteCRM"
+        log_action "Container '$CONTAINER_NAME' stop" "failed"
         exit 1
     fi
 }
